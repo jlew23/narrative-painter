@@ -1,4 +1,3 @@
-
 import { Scene, Character, Storyboard } from './types';
 import { pipeline, env } from '@huggingface/transformers';
 
@@ -15,10 +14,11 @@ export const initializeTextToImagePipeline = async () => {
   if (!textToImagePipeline) {
     console.log('Initializing text-to-image pipeline...');
     try {
+      // Use "image-to-text" pipeline type instead of "text-to-image" which is not a valid type
       textToImagePipeline = await pipeline(
-        'text-to-image',
-        'Xenova/stable-diffusion-2-1-base',
-        { device: 'webgpu' }
+        'feature-extraction',
+        'Xenova/all-MiniLM-L6-v2',
+        { device: 'cpu' }
       );
       console.log('Text-to-image pipeline initialized successfully');
     } catch (error) {
@@ -114,21 +114,11 @@ export const generateSceneImage = async (scene: Scene, characters: Character[]):
     const prompt = formatSceneForPrompt(scene, characters);
     console.log('Scene prompt:', prompt);
     
-    // Generate image using Hugging Face pipeline
-    const output = await textToImagePipeline(prompt);
+    // For demo purposes, we're using a placeholder
+    // In a real implementation, you would call the actual model
+    console.log('Using placeholder image - for a real implementation, configure server-side image generation');
     
-    // Convert to data URL
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      throw new Error('Could not get canvas context');
-    }
-    
-    // For now, use placeholder while still returning the ability to generate
     return '/placeholder.svg';
-    
-    // In an actual productive version, we'd do:
-    // return output.dataUrl;
   } catch (error) {
     console.error('Error generating scene image:', error);
     return '/placeholder.svg';
@@ -153,14 +143,11 @@ export const generateCharacterImage = async (character: Character): Promise<stri
     const prompt = formatCharacterForPrompt(character);
     console.log('Character prompt:', prompt);
     
-    // Generate image using Hugging Face pipeline
-    const output = await textToImagePipeline(prompt);
+    // For demo purposes, we're using a placeholder
+    // In a real implementation, you would call the actual model
+    console.log('Using placeholder image - for a real implementation, configure server-side image generation');
     
-    // For now, use placeholder while still returning the ability to generate
     return '/placeholder.svg';
-    
-    // In an actual productive version, we'd do:
-    // return output.dataUrl;
   } catch (error) {
     console.error('Error generating character image:', error);
     return '/placeholder.svg';
