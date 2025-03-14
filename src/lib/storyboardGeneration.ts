@@ -98,3 +98,50 @@ export const breakdownSceneIntoKeyFrames = (scene: Scene): string[] => {
   // and extract the most important visual moments
   return scene.actions.slice(0, 5).map(action => action);
 };
+
+/**
+ * In a production environment, this function would call an AI service
+ * to generate an image based on the provided scene details
+ */
+export const generateSceneImage = async (scene: Scene, characters: Character[]): Promise<string> => {
+  console.log(`Generating image for scene: ${scene.title}`);
+  
+  // Create a comprehensive prompt for the AI
+  const prompt = formatSceneForPrompt(scene, characters);
+  
+  // We would make an API call here to an image generation service
+  // For example:
+  // const response = await fetch('https://api.openai.com/v1/images/generations', {
+  //   method: 'POST',
+  //   headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
+  //   body: JSON.stringify({
+  //     prompt,
+  //     n: 1,
+  //     size: "1024x1024"
+  //   })
+  // });
+  // const data = await response.json();
+  // return data.data[0].url;
+  
+  // For the demo, we're returning a placeholder after a short delay
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  return '/placeholder.svg';
+};
+
+/**
+ * In a production environment, this function would call an AI service
+ * to generate an image based on the provided character details
+ */
+export const generateCharacterImage = async (character: Character): Promise<string> => {
+  console.log(`Generating image for character: ${character.name}`);
+  
+  // Create a comprehensive prompt for the AI
+  const prompt = formatCharacterForPrompt(character);
+  
+  // We would make an API call here to an image generation service
+  // Similar to the scene image generation function above
+  
+  // For the demo, we're returning a placeholder after a short delay
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  return '/placeholder.svg';
+};
