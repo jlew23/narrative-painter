@@ -101,7 +101,7 @@ const Index = () => {
       case 'script':
         return (
           <div className="w-full max-w-4xl mx-auto">
-            <ScriptInput onSubmit={handleScriptSubmit} />
+            <ScriptInput onAnalyze={handleScriptSubmit} />
           </div>
         );
       
@@ -118,14 +118,18 @@ const Index = () => {
                 </div>
                 
                 <CharacterExtractor 
-                  extractedCharacters={analysisResult.characters} 
-                  onCharactersUpdated={(characters) => {
+                  analysisResult={analysisResult}
+                  onCharactersGenerated={(characters) => {
                     if (analysisResult) {
                       setAnalysisResult({
                         ...analysisResult,
                         characters
                       });
                     }
+                  }}
+                  onRegenerateCharacter={(characterId) => {
+                    // In a real app, this would trigger regeneration of a specific character
+                    console.log(`Regenerating character: ${characterId}`);
                   }}
                 />
               </div>
