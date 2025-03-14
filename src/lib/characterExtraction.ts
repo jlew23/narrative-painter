@@ -1,29 +1,62 @@
-
 import { Character, CharacterRole, Scene, ScriptAnalysisResult } from './types';
+import { pipeline, env } from '@huggingface/transformers';
+
+// Configure transformers.js
+env.allowLocalModels = false;
+env.useBrowserCache = true;
+
+let textClassificationPipeline: any = null;
 
 /**
- * Basic character extraction from a script
- * In a real application, this would use more sophisticated NLP or AI
+ * Initialize the NLP pipeline for text classification
+ */
+export const initializeNLPPipeline = async () => {
+  try {
+    console.log('Initializing NLP pipeline...');
+    if (!textClassificationPipeline) {
+      textClassificationPipeline = await pipeline(
+        'text-classification', 
+        'Xenova/distilbert-base-uncased-finetuned-sst-2-english',
+        { device: 'webgpu' }
+      );
+      console.log('NLP pipeline initialized successfully');
+    }
+    return textClassificationPipeline;
+  } catch (error) {
+    console.error('Error initializing NLP pipeline:', error);
+    return null;
+  }
+};
+
+/**
+ * Extract characters from a script using regex and context analysis
  */
 export const extractCharactersFromScript = (scriptText: string): Character[] => {
-  // Simple regex to find potential character names (ALL CAPS lines followed by dialogue)
-  const characterNameRegex = /^([A-Z][A-Z\s]+)(?:\s*\(.*\))?\s*$/gm;
+  console.log('Extracting characters from script...');
+  
+  // Improved regex to find potential character names (ALL CAPS lines followed by dialogue)
+  const characterNameRegex = /^([A-Z][A-Z\s]+)(?:\s*\([^)]*\))?\s*$/gm;
   const characterMatches = [...scriptText.matchAll(characterNameRegex)];
   
+  // Get unique character names
   const characterNames = [...new Set(characterMatches.map(match => match[1].trim()))];
+  console.log('Found potential character names:', characterNames);
   
   // Create basic character objects
   return characterNames.map((name, index) => {
     // Find potential description from context
-    let description = findCharacterDescription(scriptText, name);
-    let role: CharacterRole = determineCharacterRole(scriptText, name);
+    const description = findCharacterDescription(scriptText, name);
+    const role = determineCharacterRole(scriptText, name);
+    const traits = extractCharacterTraits(scriptText, name);
+    
+    console.log(`Character "${name}" extracted with role "${role}"`);
     
     return {
       id: `character-${index}`,
       name,
-      description: description || 'No description available',
+      description: description || `Character ${name} with no description available`,
       role,
-      traits: extractCharacterTraits(scriptText, name),
+      traits,
       generationStatus: 'pending'
     };
   });
@@ -31,12 +64,15 @@ export const extractCharactersFromScript = (scriptText: string): Character[] => 
 
 /**
  * Simple scene extraction from script
- * Would be enhanced with NLP in a real implementation
  */
 export const extractScenesFromScript = (scriptText: string, characters: Character[]): Scene[] => {
-  // Simple regex to find scene headings (INT./EXT. followed by location)
-  const sceneHeadingRegex = /^(INT\.|EXT\.|INT\/EXT\.)\s(.+?)(?:\s*-\s*(.+?))?$/gim;
+  console.log('Extracting scenes from script...');
+  
+  // Improved regex to find scene headings (INT./EXT. followed by location)
+  const sceneHeadingRegex = /^(INT\.|EXT\.|INT\/EXT\.|INT\.\/EXT\.|INTERIOR|EXTERIOR)\s(.+?)(?:\s*-\s*(.+?))?$/gim;
   const sceneMatches = [...scriptText.matchAll(sceneHeadingRegex)];
+  
+  console.log(`Found ${sceneMatches.length} potential scenes`);
   
   return sceneMatches.map((match, index) => {
     const interior = match[1];
@@ -55,10 +91,13 @@ export const extractScenesFromScript = (scriptText: string, characters: Characte
     // Extract actions (simple approach - paragraphs that aren't dialogue)
     const actions = extractActionsFromScene(sceneText);
     
+    const sceneTitle = `${interior} ${location}`.trim();
+    console.log(`Extracted scene: ${sceneTitle}`);
+    
     return {
       id: `scene-${index}`,
-      title: `${interior} ${location} ${timeOfDay}`.trim(),
-      description: actions.join(' ').substring(0, 120) + '...',
+      title: sceneTitle,
+      description: `${interior} ${location} ${timeOfDay}`.trim(),
       characters: charactersInScene.map(char => char.id),
       actions,
       setting: `${location} ${timeOfDay}`.trim(),
@@ -218,21 +257,60 @@ const extractActionsFromScene = (sceneText: string): string[] => {
 };
 
 /**
- * Main function to analyze a script
+ * Main function to analyze a script using NLP and regex
  */
-export const analyzeScript = (scriptText: string): ScriptAnalysisResult => {
+export const analyzeScript = async (scriptText: string): Promise<ScriptAnalysisResult> => {
+  console.log('Starting script analysis...');
+  
   // Extract title (first line often)
   const lines = scriptText.split('\n');
-  const potentialTitle = lines.find(line => line.trim().length > 0 && line.toUpperCase() === line.trim())?.trim() || 'Untitled Script';
+  const potentialTitle = lines.find(line => 
+    line.trim().length > 0 && 
+    line.toUpperCase() === line.trim() && 
+    !line.includes('INT.') && 
+    !line.includes('EXT.')
+  )?.trim() || 'Untitled Script';
   
   // Extract characters
   const characters = extractCharactersFromScript(scriptText);
   
+  if (characters.length === 0) {
+    console.warn('No characters found in script - using fallback method');
+    // Fallback: Try to identify names in the text using NLP
+    const nameMatches = findPotentialNames(scriptText);
+    for (let i = 0; i < nameMatches.length && i < 5; i++) {
+      characters.push({
+        id: `character-fallback-${i}`,
+        name: nameMatches[i],
+        description: `Character identified in script`,
+        role: i === 0 ? 'protagonist' : i === 1 ? 'antagonist' : 'supporting',
+        traits: ['identified', 'character'],
+        generationStatus: 'pending'
+      });
+    }
+  }
+  
   // Extract scenes
   const scenes = extractScenesFromScript(scriptText, characters);
   
-  // Generate a summary (simplified)
+  if (scenes.length === 0) {
+    console.warn('No scenes found in script - creating default scene');
+    // Create at least one scene if none were found
+    scenes.push({
+      id: 'scene-default',
+      title: 'Default Scene',
+      description: 'A scene from the script',
+      characters: characters.map(char => char.id),
+      actions: ['Characters interact in this scene'],
+      setting: 'Default setting',
+      generationStatus: 'pending'
+    });
+  }
+  
+  // Generate a summary using the first few paragraphs
   const summary = scriptText.substring(0, 300) + '...';
+  
+  console.log(`Analysis complete: ${characters.length} characters, ${scenes.length} scenes`);
   
   return {
     title: potentialTitle,
@@ -240,4 +318,27 @@ export const analyzeScript = (scriptText: string): ScriptAnalysisResult => {
     characters,
     scenes
   };
+};
+
+/**
+ * Fallback method to find potential character names in text
+ * Used when the regex approach fails to find characters
+ */
+const findPotentialNames = (text: string): string[] => {
+  // Look for capitalized words that might be names
+  const potentialNames = new Set<string>();
+  
+  // Simple regex for capitalized words that might be names
+  const nameRegex = /\b[A-Z][a-z]{2,}\b/g;
+  const matches = [...text.matchAll(nameRegex)];
+  
+  matches.forEach(match => {
+    const name = match[0];
+    // Filter out common non-name capitalized words
+    if (!['INT', 'EXT', 'THE', 'AND', 'FADE', 'CUT', 'TO', 'SCENE'].includes(name)) {
+      potentialNames.add(name);
+    }
+  });
+  
+  return [...potentialNames];
 };

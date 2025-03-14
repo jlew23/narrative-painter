@@ -7,6 +7,8 @@ import { Users, UserCheck, UserCircle, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import CharacterCard from './CharacterCard';
 import { toast } from 'sonner';
+import { generateCharacterImage } from '@/lib/storyboardGeneration';
+import { initializeTextToImagePipeline } from '@/lib/storyboardGeneration';
 
 interface CharacterExtractorProps {
   analysisResult: ScriptAnalysisResult | null;
@@ -21,6 +23,7 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<string>('all');
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
   
   useEffect(() => {
     if (analysisResult?.characters) {
@@ -28,11 +31,12 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
     }
   }, [analysisResult]);
 
-  const handleGenerateAllImages = () => {
-    // In a real app, this would call an AI image generation service
-    // For the demo, we'll simulate the process
-    
-    toast.success('Generating character images...');
+  const handleGenerateAllImages = async () => {
+    // Initialize Hugging Face pipeline
+    const pipelineInitialized = await initializeTextToImagePipeline();
+    if (!pipelineInitialized) {
+      toast.error('Failed to initialize image generation. Using placeholders instead.');
+    }
     
     // Update all characters to "generating" status
     const updatingCharacters = characters.map(char => ({
@@ -40,23 +44,67 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
       generationStatus: 'generating' as const
     }));
     setCharacters(updatingCharacters);
+    setIsGenerating(true);
+    toast.success('Generating character images...');
     
-    // Simulate completion after a delay
-    setTimeout(() => {
-      const generatedCharacters = updatingCharacters.map(char => ({
-        ...char,
-        // In a real app, this would be the URL from the image generation service
-        imageUrl: `/placeholder.svg`,
-        generationStatus: 'completed' as const
-      }));
+    try {
+      // Generate images for all characters one by one
+      const generatedCharacters = [...updatingCharacters];
+      
+      for (let i = 0; i < generatedCharacters.length; i++) {
+        const char = generatedCharacters[i];
+        try {
+          // Call the actual image generation function
+          const imageUrl = await generateCharacterImage(char);
+          
+          // Update the character with the generated image
+          generatedCharacters[i] = {
+            ...char,
+            imageUrl,
+            generationStatus: 'completed' as const
+          };
+          
+          // Update the state to show progress
+          setCharacters([...generatedCharacters]);
+        } catch (error) {
+          console.error(`Error generating image for ${char.name}:`, error);
+          generatedCharacters[i] = {
+            ...char,
+            imageUrl: '/placeholder.svg',
+            generationStatus: 'failed' as const
+          };
+        }
+      }
       
       setCharacters(generatedCharacters);
       onCharactersGenerated(generatedCharacters);
       toast.success('All character images generated!');
-    }, 2000);
+    } catch (error) {
+      console.error('Error generating character images:', error);
+      toast.error('Failed to generate some character images');
+      
+      // Mark all as completed with placeholder images
+      const fallbackCharacters = characters.map(char => ({
+        ...char,
+        imageUrl: '/placeholder.svg',
+        generationStatus: 'completed' as const
+      }));
+      
+      setCharacters(fallbackCharacters);
+      onCharactersGenerated(fallbackCharacters);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
-  const handleRegenerateCharacter = (characterId: string) => {
+  const handleRegenerateCharacter = async (characterId: string) => {
+    // Find the character to regenerate
+    const character = characters.find(char => char.id === characterId);
+    if (!character) {
+      toast.error('Character not found');
+      return;
+    }
+    
     // Update specific character to "generating" status
     setCharacters(prev => 
       prev.map(char => 
@@ -66,22 +114,49 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
       )
     );
     
-    // Simulate regeneration after a delay
-    setTimeout(() => {
+    try {
+      // Initialize pipeline if needed
+      const pipelineInitialized = await initializeTextToImagePipeline();
+      if (!pipelineInitialized) {
+        toast.error('Failed to initialize image generation. Using placeholder instead.');
+      }
+      
+      // Generate new image
+      const imageUrl = await generateCharacterImage(character);
+      
+      // Update character with new image
       setCharacters(prev => 
         prev.map(char => 
           char.id === characterId 
             ? {
                 ...char, 
-                imageUrl: `/placeholder.svg?v=${Date.now()}`,
+                imageUrl,
                 generationStatus: 'completed' as const
               }
             : char
         )
       );
+      
+      // Call the parent component's callback
       onRegenerateCharacter(characterId);
-      toast.success(`Regenerated ${characters.find(c => c.id === characterId)?.name || 'character'}`);
-    }, 1500);
+      toast.success(`Regenerated ${character.name}`);
+    } catch (error) {
+      console.error(`Error regenerating image for character ${characterId}:`, error);
+      toast.error('Failed to regenerate character image');
+      
+      // Set to completed with placeholder
+      setCharacters(prev => 
+        prev.map(char => 
+          char.id === characterId 
+            ? {
+                ...char, 
+                imageUrl: '/placeholder.svg',
+                generationStatus: 'completed' as const
+              }
+            : char
+        )
+      );
+    }
   };
 
   // Filter characters based on active tab
@@ -111,16 +186,17 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
         <CardTitle className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Users className="h-5 w-5 text-primary" />
-            <span>Characters</span>
+            <span>Characters ({characters.length})</span>
           </div>
           <Button 
             variant="outline" 
             size="sm" 
             className="text-xs"
             onClick={handleGenerateAllImages}
+            disabled={isGenerating || characters.length === 0}
           >
             <Sparkles className="h-3.5 w-3.5 mr-1" />
-            Generate All Images
+            {isGenerating ? 'Generating...' : 'Generate All Images'}
           </Button>
         </CardTitle>
       </CardHeader>

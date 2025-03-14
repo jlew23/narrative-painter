@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { 
   Sparkles, 
@@ -16,6 +15,8 @@ import { Character, Scene, ScriptAnalysisResult } from '@/lib/types';
 import ScriptInput from '@/components/ScriptInput';
 import CharacterExtractor from '@/components/CharacterExtractor';
 import StoryboardGenerator from '@/components/StoryboardGenerator';
+import { analyzeScript } from '@/lib/characterExtraction';
+import { initializeNLPPipeline } from '@/lib/characterExtraction';
 
 const SAMPLE_CHARACTERS: Character[] = [
   {
@@ -70,25 +71,37 @@ const Index = () => {
   const [currentView, setCurrentView] = useState<'home' | 'script' | 'characters' | 'storyboard'>('home');
   const [scriptContent, setScriptContent] = useState<string>('');
   const [analysisResult, setAnalysisResult] = useState<ScriptAnalysisResult | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
 
-  const handleScriptSubmit = (script: string) => {
+  const handleScriptSubmit = async (script: string) => {
     setScriptContent(script);
+    setAnalyzing(true);
     
-    // In a real application, this would call an AI service
-    // For now, we'll simulate the analysis with sample data
-    toast.info('Analyzing script...');
-    
-    setTimeout(() => {
-      setAnalysisResult({
-        characters: SAMPLE_CHARACTERS,
-        scenes: SAMPLE_SCENES,
-        title: 'Tech Breakthrough',
-        summary: 'A tech entrepreneur fights to protect her groundbreaking invention from corporate espionage.'
-      });
+    try {
+      toast.info('Analyzing script...');
       
+      // Initialize the NLP pipeline
+      await initializeNLPPipeline();
+      
+      // Perform actual analysis using our enhanced function
+      const result = await analyzeScript(script);
+      
+      // Set the analysis result with real data
+      setAnalysisResult(result);
+      
+      // Navigate to characters view
       setCurrentView('characters');
       toast.success('Script analysis complete!');
-    }, 1500);
+      
+      // Log analysis results
+      console.log('Script analysis completed with results:', result);
+      console.log(`Found ${result.characters.length} characters and ${result.scenes.length} scenes`);
+    } catch (error) {
+      console.error('Error analyzing script:', error);
+      toast.error('Failed to analyze script. Please try again.');
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   const handleGenerateStoryboard = (storyboard: any) => {
@@ -128,7 +141,6 @@ const Index = () => {
                     }
                   }}
                   onRegenerateCharacter={(characterId) => {
-                    // In a real app, this would trigger regeneration of a specific character
                     console.log(`Regenerating character: ${characterId}`);
                   }}
                 />
