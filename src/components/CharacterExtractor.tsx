@@ -52,7 +52,7 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
     
     try {
       // Generate images for all characters one by one
-      const generatedCharacters = [...updatingCharacters];
+      const generatedCharacters: Character[] = [...updatingCharacters];
       
       for (let i = 0; i < generatedCharacters.length; i++) {
         const char = generatedCharacters[i];
@@ -64,7 +64,7 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
           generatedCharacters[i] = {
             ...char,
             imageUrl,
-            generationStatus: 'completed'
+            generationStatus: 'completed' as const
           };
           
           // Update progress
@@ -78,7 +78,7 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
           generatedCharacters[i] = {
             ...char,
             imageUrl: '/placeholder.svg',
-            generationStatus: 'failed'
+            generationStatus: 'failed' as const
           };
         }
       }
@@ -91,10 +91,10 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
       toast.error('Failed to generate some character images');
       
       // Mark all as completed with placeholder images
-      const fallbackCharacters = characters.map(char => ({
+      const fallbackCharacters: Character[] = characters.map(char => ({
         ...char,
         imageUrl: '/placeholder.svg',
-        generationStatus: 'completed'
+        generationStatus: 'completed' as const
       }));
       
       setCharacters(fallbackCharacters);
@@ -139,7 +139,7 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
             ? {
                 ...char, 
                 imageUrl,
-                generationStatus: 'completed'
+                generationStatus: 'completed' as const
               }
             : char
         )
@@ -159,7 +159,7 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
             ? {
                 ...char, 
                 imageUrl: '/placeholder.svg',
-                generationStatus: 'failed'
+                generationStatus: 'failed' as const
               }
             : char
         )
