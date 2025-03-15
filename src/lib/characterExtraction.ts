@@ -68,8 +68,24 @@ export const extractCharactersFromScript = (scriptText: string): Character[] => 
       'EPISODE', 'CHAPTER', 'ACT'
     ];
     
+    // Added more terms that aren't character names including pronouns and store names
+    const commonPronouns = [
+      'HE', 'SHE', 'THEY', 'IT', 'WE', 'YOU', 'I', 'ME', 'MY', 'MINE', 
+      'HIS', 'HER', 'HERS', 'THEM', 'THEIR', 'THEIRS', 'OUR', 'OURS', 'YOUR', 'YOURS',
+      'HIMSELF', 'HERSELF', 'THEMSELVES', 'MYSELF', 'YOURSELF', 'YOURSELVES', 'OURSELVES',
+      'THIS', 'THAT', 'THESE', 'THOSE'
+    ];
+    
+    // List of common store/business/location names that might appear in ALL CAPS
+    const businessNames = [
+      'BIG BUY', 'WALMART', 'TARGET', 'STARBUCKS', 'MCDONALDS', 'MALL', 'CINEMA',
+      'THEATER', 'COFFEE SHOP', 'DINER', 'RESTAURANT', 'SHOP', 'STORE', 'MARKET',
+      'SUPERMARKET', 'PHARMACY', 'HOSPITAL', 'SCHOOL', 'UNIVERSITY', 'COLLEGE',
+      'LIBRARY', 'BANK', 'POLICE STATION', 'FIRE STATION', 'GAS STATION'
+    ];
+    
     // Filter out common non-character terms
-    for (const term of nonCharacterTerms) {
+    for (const term of [...nonCharacterTerms, ...commonPronouns, ...businessNames]) {
       if (name === term || name.includes(term + ' ') || name.includes(' ' + term)) {
         return false;
       }
@@ -80,10 +96,27 @@ export const extractCharactersFromScript = (scriptText: string): Character[] => 
       return false;
     }
     
+    // Exclude names that are too short (likely abbreviations or single words)
+    if (name.length < 3) {
+      return false;
+    }
+    
     // Check if the name appears standalone multiple times (like an actual character)
     const nameRegex = new RegExp(`^${name}\\b`, 'gm');
     const exactMatches = scriptText.match(nameRegex);
-    return exactMatches && exactMatches.length > 1;
+    
+    // If it doesn't appear multiple times as an exact match at the start of lines,
+    // it's probably not a character name in screenplay format
+    if (!exactMatches || exactMatches.length < 2) {
+      return false;
+    }
+    
+    // Additional check: when the name appears, is it followed by dialogue?
+    // This helps filter out section headers or other ALL CAPS elements
+    const nameWithDialogueCount = (scriptText.match(new RegExp(`^${name}\\s*\\n(?!\\s*[A-Z][A-Z\\s]+)`, 'gm')) || []).length;
+    
+    // If at least some occurrences are followed by dialogue, it's likely a character
+    return nameWithDialogueCount > 0;
   });
   
   console.log('Found potential character names:', filteredNames);
@@ -324,10 +357,17 @@ export const analyzeScript = async (scriptText: string): Promise<ScriptAnalysisR
     console.warn('No characters found in script - using fallback method');
     // Fallback: Use improved character detection
     const nameMatches = findPotentialCharacterNames(scriptText);
-    for (let i = 0; i < nameMatches.length && i < 5; i++) {
+    
+    // Additional filtering to remove non-character names
+    const filteredFallbackNames = nameMatches.filter(name => {
+      const commonNonNames = ['SHE', 'HE', 'THEY', 'BIG BUY', 'WALL', 'DOOR', 'TABLE'];
+      return !commonNonNames.includes(name.toUpperCase());
+    });
+    
+    for (let i = 0; i < filteredFallbackNames.length && i < 5; i++) {
       characters.push({
         id: `character-fallback-${i}`,
-        name: nameMatches[i],
+        name: filteredFallbackNames[i],
         description: `Character identified in script`,
         role: i === 0 ? 'protagonist' : i === 1 ? 'antagonist' : 'supporting',
         traits: ['identified', 'character'],
@@ -419,7 +459,9 @@ const findPotentialCharacterNames = (text: string): string[] => {
         'However', 'Then', 'When', 'Where', 'What', 'Who', 'Why', 'How', 'Which', 'While',
         'Although', 'Because', 'Since', 'After', 'Before', 'During', 'Through', 'Throughout',
         'Some', 'Any', 'Many', 'Much', 'Most', 'More', 'Less', 'Few', 'Little', 'All',
-        'Every', 'Each', 'Either', 'Neither', 'Both', 'Such', 'Rather', 'Quite', 'Very'
+        'Every', 'Each', 'Either', 'Neither', 'Both', 'Such', 'Rather', 'Quite', 'Very',
+        'She', 'He', 'It', 'We', 'You', 'I', 'Me', 'My', 'Mine', 'His', 'Her', 'Hers',
+        'Them', 'Their', 'Our', 'Your', 'Yours', 'Big', 'Buy', 'Big Buy', 'Store', 'Shop'
       ];
       
       return !nonNameWords.includes(name) && count > 1;
