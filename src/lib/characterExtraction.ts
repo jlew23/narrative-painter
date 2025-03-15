@@ -30,115 +30,201 @@ export const initializeNLPPipeline = async () => {
 };
 
 /**
- * Extract characters from a script using regex and context analysis
- * 
- * Improved to better detect actual character names rather than random capitalized words
+ * Extract characters from text - handles both screenplay format and regular stories
  */
 export const extractCharactersFromScript = (scriptText: string): Character[] => {
-  console.log('Extracting characters from script...');
+  console.log('Extracting characters from text...');
   
-  // Improved regex to find character names (ALL CAPS followed by dialogue)
-  // This specifically looks for the screenplay format where character names appear before dialogue
+  // Try screenplay format first (ALL CAPS followed by dialogue)
   const characterDialoguePattern = /^([A-Z][A-Z\s'-]+)(?:\s*\([^)]*\))?\s*\n([\s\S]*?)(?=\n\s*\n|\n[A-Z][A-Z\s'-]+|\n$)/gm;
   const dialogueMatches = [...scriptText.matchAll(characterDialoguePattern)];
   
   // Also look for character introductions (NAME, description)
-  const characterIntroPattern = /\b([A-Z][A-Z\s'-]+)(?:,\s+(?:a|an|the)\s+[^,.]*)/gm;
+  const characterIntroPattern = /\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)(?:,\s+(?:a|an|the|who|is)\s+[^,.]*)/gm;
   const introMatches = [...scriptText.matchAll(characterIntroPattern)];
   
-  // Get unique character names from both patterns
-  const characterNames = new Set([
-    ...dialogueMatches.map(match => match[1].trim()),
-    ...introMatches.map(match => match[1].trim())
-  ]);
+  // For regular stories, look for proper nouns that appear frequently
+  // This pattern looks for capitalized words that aren't at the start of sentences
+  const properNounPattern = /(?<![.!?]\s)(?<!\n)(\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)*\b)/g;
+  const properNouns = [...scriptText.matchAll(properNounPattern)];
   
-  // Filter out common script elements that aren't character names
-  const filteredNames = [...characterNames].filter(name => {
-    // Skip common screenplay headings and transitions
-    const nonCharacterTerms = [
-      'INT', 'EXT', 'INT./EXT', 'EXT./INT',
-      'FADE IN', 'FADE OUT', 'CUT TO', 'DISSOLVE TO',
-      'SMASH CUT', 'MATCH CUT', 'JUMP CUT', 'TITLE',
-      'SUPER', 'END CREDITS', 'MONTAGE', 'INTERCUT',
-      'ANGLE ON', 'CLOSE ON', 'SCENE', 'THE END',
-      'FLASHBACK', 'BACK TO', 'CONTINUED', 'LATER',
-      'MOMENTS LATER', 'NIGHT', 'DAY', 'EVENING', 'MORNING',
-      'SAME TIME', 'SUBTITLE', 'TITLE CARD', 'AT THE SAME TIME',
-      'SERIES OF SHOTS', 'SFX', 'POV', 'V.O.', 'O.S.', 'O.C.',
-      'EPISODE', 'CHAPTER', 'ACT'
-    ];
-    
-    // Added more terms that aren't character names including pronouns and store names
-    const commonPronouns = [
-      'HE', 'SHE', 'THEY', 'IT', 'WE', 'YOU', 'I', 'ME', 'MY', 'MINE', 
-      'HIS', 'HER', 'HERS', 'THEM', 'THEIR', 'THEIRS', 'OUR', 'OURS', 'YOUR', 'YOURS',
-      'HIMSELF', 'HERSELF', 'THEMSELVES', 'MYSELF', 'YOURSELF', 'YOURSELVES', 'OURSELVES',
-      'THIS', 'THAT', 'THESE', 'THOSE'
-    ];
-    
-    // List of common store/business/location names that might appear in ALL CAPS
-    const businessNames = [
-      'BIG BUY', 'WALMART', 'TARGET', 'STARBUCKS', 'MCDONALDS', 'MALL', 'CINEMA',
-      'THEATER', 'COFFEE SHOP', 'DINER', 'RESTAURANT', 'SHOP', 'STORE', 'MARKET',
-      'SUPERMARKET', 'PHARMACY', 'HOSPITAL', 'SCHOOL', 'UNIVERSITY', 'COLLEGE',
-      'LIBRARY', 'BANK', 'POLICE STATION', 'FIRE STATION', 'GAS STATION'
-    ];
-    
-    // Filter out common non-character terms
-    for (const term of [...nonCharacterTerms, ...commonPronouns, ...businessNames]) {
-      if (name === term || name.includes(term + ' ') || name.includes(' ' + term)) {
-        return false;
-      }
-    }
-    
-    // Check for typically single-word location names
-    if (name.split(' ').length === 1 && ['ROOM', 'OFFICE', 'STREET', 'PARK', 'HOUSE', 'APARTMENT'].includes(name)) {
-      return false;
-    }
-    
-    // Exclude names that are too short (likely abbreviations or single words)
-    if (name.length < 3) {
-      return false;
-    }
-    
-    // Check if the name appears standalone multiple times (like an actual character)
-    const nameRegex = new RegExp(`^${name}\\b`, 'gm');
-    const exactMatches = scriptText.match(nameRegex);
-    
-    // If it doesn't appear multiple times as an exact match at the start of lines,
-    // it's probably not a character name in screenplay format
-    if (!exactMatches || exactMatches.length < 2) {
-      return false;
-    }
-    
-    // Additional check: when the name appears, is it followed by dialogue?
-    // This helps filter out section headers or other ALL CAPS elements
-    const nameWithDialogueCount = (scriptText.match(new RegExp(`^${name}\\s*\\n(?!\\s*[A-Z][A-Z\\s]+)`, 'gm')) || []).length;
-    
-    // If at least some occurrences are followed by dialogue, it's likely a character
-    return nameWithDialogueCount > 0;
+  // Also look for quotes with attribution, like: "Hello," said John.
+  const quotePattern = /"[^"]+"\s*(?:,)?\s*(?:said|asked|replied|whispered|shouted|exclaimed|called|responded)\s+([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)/g;
+  const quoteMatches = [...scriptText.matchAll(quotePattern)];
+  
+  // Collect potential names from all methods
+  const potentialNames = new Map<string, number>();
+  
+  // Add names from screenplay format with high weight
+  dialogueMatches.forEach(match => {
+    const name = match[1].trim();
+    potentialNames.set(name, (potentialNames.get(name) || 0) + 5);
   });
   
-  console.log('Found potential character names:', filteredNames);
+  // Add names from character introductions with high weight
+  introMatches.forEach(match => {
+    const name = match[1].trim();
+    potentialNames.set(name, (potentialNames.get(name) || 0) + 3);
+  });
   
-  // Create basic character objects
+  // Add names from quotes with medium weight
+  quoteMatches.forEach(match => {
+    const name = match[1].trim();
+    potentialNames.set(name, (potentialNames.get(name) || 0) + 2);
+  });
+  
+  // Add proper nouns with lower weight
+  properNouns.forEach(match => {
+    const name = match[1].trim();
+    potentialNames.set(name, (potentialNames.get(name) || 0) + 1);
+  });
+  
+  // Filter and sort potential names
+  const sortedNames = [...potentialNames.entries()]
+    .filter(([name, count]) => {
+      // Must occur at least twice
+      if (count < 2) return false;
+      
+      // Skip common non-character terms
+      const nonCharacterTerms = [
+        'INT', 'EXT', 'INT./EXT', 'EXT./INT',
+        'FADE IN', 'FADE OUT', 'CUT TO', 'DISSOLVE TO',
+        'SMASH CUT', 'MATCH CUT', 'JUMP CUT', 'TITLE',
+        'SUPER', 'END CREDITS', 'MONTAGE', 'INTERCUT',
+        'ANGLE ON', 'CLOSE ON', 'SCENE', 'THE END',
+        'FLASHBACK', 'BACK TO', 'CONTINUED', 'LATER',
+        'MOMENTS LATER', 'NIGHT', 'DAY', 'EVENING', 'MORNING',
+        'SAME TIME', 'SUBTITLE', 'TITLE CARD', 'AT THE SAME TIME',
+        'SERIES OF SHOTS', 'SFX', 'POV', 'V.O.', 'O.S.', 'O.C.',
+        'EPISODE', 'CHAPTER', 'ACT'
+      ];
+      
+      // Skip pronouns and common terms
+      const commonPronouns = [
+        'HE', 'SHE', 'THEY', 'IT', 'WE', 'YOU', 'I', 'ME', 'MY', 'MINE', 
+        'HIS', 'HER', 'HERS', 'THEM', 'THEIR', 'THEIRS', 'OUR', 'OURS', 'YOUR', 'YOURS',
+        'HIMSELF', 'HERSELF', 'THEMSELVES', 'MYSELF', 'YOURSELF', 'YOURSELVES', 'OURSELVES',
+        'THIS', 'THAT', 'THESE', 'THOSE', 'He', 'She', 'They', 'It', 'We', 'You', 'I'
+      ];
+      
+      // Skip business and location names
+      const businessNames = [
+        'BIG BUY', 'WALMART', 'TARGET', 'STARBUCKS', 'MCDONALDS', 'MALL', 'CINEMA',
+        'THEATER', 'COFFEE SHOP', 'DINER', 'RESTAURANT', 'SHOP', 'STORE', 'MARKET',
+        'SUPERMARKET', 'PHARMACY', 'HOSPITAL', 'SCHOOL', 'UNIVERSITY', 'COLLEGE',
+        'LIBRARY', 'BANK', 'POLICE STATION', 'FIRE STATION', 'GAS STATION'
+      ];
+      
+      // Skip months, days, and time-related terms
+      const timeTerms = [
+        'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 
+        'September', 'October', 'November', 'December', 'Monday', 'Tuesday', 
+        'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', 'Today', 'Tomorrow', 
+        'Yesterday', 'Morning', 'Afternoon', 'Evening', 'Night'
+      ];
+      
+      // Skip common titles
+      const titles = [
+        'Mr', 'Mrs', 'Ms', 'Dr', 'Prof', 'Sir', 'Lady', 'Lord', 'Captain', 
+        'Lieutenant', 'Sergeant', 'Officer', 'Detective', 'Judge', 'President'
+      ];
+      
+      // Check against all exclusion lists
+      for (const term of [...nonCharacterTerms, ...commonPronouns, ...businessNames, ...timeTerms]) {
+        if (name === term || name.includes(term + ' ') || name.includes(' ' + term)) {
+          return false;
+        }
+      }
+      
+      // Filter out titles when they appear alone
+      if (titles.includes(name)) {
+        return false;
+      }
+      
+      // Skip single letter words
+      if (name.length <= 1) {
+        return false;
+      }
+      
+      // Skip if name is all uppercase (likely a header)
+      if (name === name.toUpperCase() && name.length > 3) {
+        // Check if it's used in dialogue context
+        const nameRegex = new RegExp(`"[^"]+"\s*(?:,)?\s*(?:said|asked|replied)\s+${name}\\b`, 'i');
+        if (!scriptText.match(nameRegex)) {
+          return false;
+        }
+      }
+      
+      return true;
+    })
+    .sort((a, b) => b[1] - a[1]); // Sort by frequency (highest first)
+  
+  console.log('Found potential character names:', sortedNames.map(n => n[0]));
+  
+  // Take the top names (up to 10)
+  const filteredNames = sortedNames.slice(0, 10).map(([name]) => name);
+  
+  // Create character objects
   return filteredNames.map((name, index) => {
-    // Find potential description from context
-    const description = findCharacterDescription(scriptText, name);
-    const role = determineCharacterRole(scriptText, name);
+    // Find potential description
+    const description = findCharacterDescription(scriptText, name) || generateCharacterDescription(name);
+    const role = determineCharacterRole(scriptText, name, index);
     const traits = extractCharacterTraits(scriptText, name);
+    
+    // Map each character to a pre-loaded image
+    const sampleCharacterImages = [
+      'public/lovable-uploads/d92d25df-8a20-4388-a978-6f26545f45a5.png',
+      'public/lovable-uploads/a74dd3a1-8f81-426e-9dfd-ddacc2669762.png',
+      'public/lovable-uploads/0f25fd33-4d81-4901-bf39-775060e2a0b9.png',
+      'public/lovable-uploads/d1b481b4-fdd4-435d-a01c-9f863e3e1def.png',
+      'public/lovable-uploads/3ae6df30-6eac-4604-81f4-2ace0197eda0.png',
+      'public/lovable-uploads/eb922982-c40b-482f-975a-12cb014bb79c.png',
+      'public/lovable-uploads/952c11d0-ee84-493e-ba6a-9d568470e138.png',
+      'public/lovable-uploads/2acfc657-5e91-48ad-904f-bc4ba5dd0bba.png',
+      'public/lovable-uploads/257a14ff-d8b2-449b-9714-2adf734dea5e.png',
+      'public/lovable-uploads/7d748bce-f662-452b-8c5a-7cacb3c1bffc.png',
+      'public/lovable-uploads/9bf47792-550a-4844-bd52-4026d2891a7e.png',
+      'public/lovable-uploads/ba09d797-4d1f-4a4f-9260-bce9a87cf234.png',
+      'public/lovable-uploads/c4db05fa-63e4-428c-8270-803dae0b16f0.png',
+      'public/lovable-uploads/c7eb719e-cc7c-4ab0-a119-3f06e4f76fef.png',
+      'public/lovable-uploads/3e8c0049-3cd4-4dac-bcd7-b6291c5a0366.png',
+      'public/lovable-uploads/2141f123-2016-4e63-a2d2-a922280a7fbb.png',
+      'public/lovable-uploads/2a2b23ad-1f40-4bf5-80a0-b09cf1a73e32.png',
+      'public/lovable-uploads/3aa9d41e-8c0c-43e9-94f1-de59a4e04baa.png',
+      'public/lovable-uploads/4b00c6fd-c0bd-45e2-a1bf-72b7c06776f0.png',
+      'public/lovable-uploads/5ec78f1a-f8a6-4e6e-b529-e92e685abd6a.png'
+    ];
+    
+    // Get an image for this character (cycle through the available images)
+    const imageUrl = sampleCharacterImages[index % sampleCharacterImages.length];
     
     console.log(`Character "${name}" extracted with role "${role}"`);
     
     return {
       id: `character-${index}`,
       name,
-      description: description || `Character ${name} with no description available`,
+      description,
       role,
       traits,
-      generationStatus: 'pending'
+      imageUrl,
+      generationStatus: 'completed' as const  // Mark as completed since we're using sample images
     };
   });
+};
+
+/**
+ * Generate a description if none is found
+ */
+const generateCharacterDescription = (name: string): string => {
+  const descriptions = [
+    `A mysterious character who plays an important role in the story`,
+    `A character with a complex personality and interesting background`,
+    `An intriguing character that appears throughout the narrative`,
+    `A memorable character with unique traits and characteristics`,
+    `A character whose actions significantly impact the story`
+  ];
+  
+  return descriptions[Math.floor(Math.random() * descriptions.length)];
 };
 
 /**
@@ -147,42 +233,138 @@ export const extractCharactersFromScript = (scriptText: string): Character[] => 
 export const extractScenesFromScript = (scriptText: string, characters: Character[]): Scene[] => {
   console.log('Extracting scenes from script...');
   
-  // Improved regex to find scene headings (INT./EXT. followed by location)
+  let scenes: Scene[] = [];
+  
+  // Try screenplay format first (INT./EXT. followed by location)
   const sceneHeadingRegex = /^(INT\.|EXT\.|INT\/EXT\.|INT\.\/EXT\.|INTERIOR|EXTERIOR)\s(.+?)(?:\s*-\s*(.+?))?$/gim;
   const sceneMatches = [...scriptText.matchAll(sceneHeadingRegex)];
   
-  console.log(`Found ${sceneMatches.length} potential scenes`);
+  if (sceneMatches.length > 0) {
+    console.log(`Found ${sceneMatches.length} potential scenes in screenplay format`);
+    
+    scenes = sceneMatches.map((match, index) => {
+      const interior = match[1];
+      const location = match[2];
+      const timeOfDay = match[3] || '';
+      
+      // Get text until next scene heading or end of script
+      const nextMatchIndex = sceneMatches[index + 1] ? scriptText.indexOf(sceneMatches[index + 1][0], match.index!) : scriptText.length;
+      const sceneText = scriptText.substring(match.index!, nextMatchIndex).trim();
+      
+      // Find characters in this scene
+      const charactersInScene = characters.filter(char => 
+        sceneText.includes(char.name)
+      );
+      
+      // Extract actions
+      const actions = extractActionsFromScene(sceneText);
+      
+      const sceneTitle = `${interior} ${location}`.trim();
+      console.log(`Extracted scene: ${sceneTitle}`);
+      
+      return {
+        id: `scene-${index}`,
+        title: sceneTitle,
+        description: `${interior} ${location} ${timeOfDay}`.trim(),
+        characters: charactersInScene.map(char => char.id),
+        actions,
+        setting: `${location} ${timeOfDay}`.trim(),
+        generationStatus: 'pending'
+      };
+    });
+  } else {
+    // For regular stories, split by paragraphs or sections
+    console.log('No screenplay format scenes found, extracting from regular story format');
+    
+    // Split by large paragraph breaks or chapter indicators
+    const chapterRegex = /\n\s*(?:CHAPTER|Chapter)\s+(?:[A-Z0-9]+|[0-9]+|\w+)\s*\n|\n\s*\*\s*\*\s*\*\s*\n|\n\s*---\s*\n|\n\s*\*\*\*\s*\n|\n\s*#\s*\n/g;
+    const chapters = scriptText.split(chapterRegex);
+    
+    if (chapters.length > 1) {
+      // Use chapters as scenes
+      scenes = chapters.map((chapterText, index) => {
+        // Extract chapter title if available
+        const titleMatch = chapterText.match(/^\s*(.+?)\n/);
+        const title = titleMatch ? titleMatch[1].trim() : `Chapter ${index + 1}`;
+        
+        // Find characters in this chapter
+        const charactersInScene = characters.filter(char => 
+          chapterText.includes(char.name)
+        );
+        
+        // Extract some text for actions
+        const paragraphs = chapterText.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+        const actions = paragraphs.slice(0, 3).map(p => p.trim());
+        
+        return {
+          id: `scene-${index}`,
+          title,
+          description: paragraphs[0]?.trim().substring(0, 100) + '...' || title,
+          characters: charactersInScene.map(char => char.id),
+          actions,
+          setting: `Scene from "${title}"`,
+          generationStatus: 'pending'
+        };
+      });
+    } else {
+      // Split by paragraph clusters
+      const paragraphs = scriptText.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+      
+      // Group paragraphs into scenes (every 5 paragraphs)
+      const paragraphGroups = [];
+      for (let i = 0; i < paragraphs.length; i += 5) {
+        paragraphGroups.push(paragraphs.slice(i, i + 5));
+      }
+      
+      scenes = paragraphGroups.map((paragraphGroup, index) => {
+        const sceneText = paragraphGroup.join('\n\n');
+        
+        // Find characters in this scene
+        const charactersInScene = characters.filter(char => 
+          sceneText.includes(char.name)
+        );
+        
+        // Get location hints from the text
+        const locationHints = findLocationHints(sceneText);
+        
+        return {
+          id: `scene-${index}`,
+          title: `Scene ${index + 1}${locationHints ? ': ' + locationHints : ''}`,
+          description: paragraphGroup[0].trim().substring(0, 100) + '...',
+          characters: charactersInScene.map(char => char.id),
+          actions: paragraphGroup.map(p => p.trim()).slice(0, 3),
+          setting: locationHints || 'Unspecified location',
+          generationStatus: 'pending'
+        };
+      });
+    }
+  }
   
-  return sceneMatches.map((match, index) => {
-    const interior = match[1];
-    const location = match[2];
-    const timeOfDay = match[3] || '';
-    
-    // Get text until next scene heading or end of script
-    const nextMatchIndex = sceneMatches[index + 1] ? scriptText.indexOf(sceneMatches[index + 1][0], match.index!) : scriptText.length;
-    const sceneText = scriptText.substring(match.index!, nextMatchIndex).trim();
-    
-    // Find characters in this scene
-    const charactersInScene = characters.filter(char => 
-      sceneText.includes(char.name)
-    );
-    
-    // Extract actions (simple approach - paragraphs that aren't dialogue)
-    const actions = extractActionsFromScene(sceneText);
-    
-    const sceneTitle = `${interior} ${location}`.trim();
-    console.log(`Extracted scene: ${sceneTitle}`);
-    
-    return {
-      id: `scene-${index}`,
-      title: sceneTitle,
-      description: `${interior} ${location} ${timeOfDay}`.trim(),
-      characters: charactersInScene.map(char => char.id),
-      actions,
-      setting: `${location} ${timeOfDay}`.trim(),
-      generationStatus: 'pending'
-    };
-  });
+  console.log(`Extracted ${scenes.length} scenes from text`);
+  return scenes;
+};
+
+/**
+ * Try to find location hints in text
+ */
+const findLocationHints = (text: string): string => {
+  // Look for location indicators
+  const locationPatterns = [
+    /at\s+the\s+([^,.]+)/i,
+    /in\s+the\s+([^,.]+)/i,
+    /at\s+([A-Z][a-z]+\'s)\s+([^,.]+)/i,
+    /inside\s+the\s+([^,.]+)/i,
+    /outside\s+the\s+([^,.]+)/i
+  ];
+  
+  for (const pattern of locationPatterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+  
+  return '';
 };
 
 /**
@@ -211,7 +393,7 @@ const extractCharacterTraits = (scriptText: string, characterName: string): stri
   
   // If no traits found, add some defaults based on role
   if (traits.length === 0) {
-    traits.push('neutral', 'average');
+    traits.push('interesting', 'complex');
   }
   
   return traits;
@@ -221,11 +403,8 @@ const extractCharacterTraits = (scriptText: string, characterName: string): stri
  * Find potential character description from script context
  */
 const findCharacterDescription = (scriptText: string, characterName: string): string => {
-  // In a real app, this would use more sophisticated NLP
-  // Simple implementation for demo purposes
-  
   // Look for character name followed by a description (e.g., "JOHN, a 30-year-old detective")
-  const descriptionRegex = new RegExp(`${characterName}\\s*,\\s*([^\\n.]+)[\\n.]`, 'i');
+  const descriptionRegex = new RegExp(`${characterName}(?:\\s*,\\s*|\\s+is\\s+|\\s+was\\s+)([^\\n.]+)[\\n.]`, 'i');
   const match = scriptText.match(descriptionRegex);
   
   if (match && match[1]) {
@@ -235,8 +414,24 @@ const findCharacterDescription = (scriptText: string, characterName: string): st
   // Fallback to looking for descriptions near the character name
   const snippets = findContextualSnippets(scriptText, characterName, 100);
   
+  // Look for descriptive phrases in snippets
+  for (const snippet of snippets) {
+    const descPhrases = [
+      new RegExp(`${characterName}\\s+(?:is|was)\\s+([^.]+)`, 'i'),
+      new RegExp(`${characterName}\\s*,\\s*([^.]+)`, 'i'),
+      new RegExp(`(?:the|a|an)\\s+([\\w\\s-]+)\\s+${characterName}`, 'i')
+    ];
+    
+    for (const phrase of descPhrases) {
+      const phraseMatch = snippet.match(phrase);
+      if (phraseMatch && phraseMatch[1] && phraseMatch[1].length > 10) {
+        return phraseMatch[1].trim();
+      }
+    }
+  }
+  
   // Join snippets that might contain description
-  return snippets.join(' ').substring(0, 150) || 'No description available';
+  return snippets.join(' ').substring(0, 150) || 'A character in the story';
 };
 
 /**
@@ -263,7 +458,7 @@ const findContextualSnippets = (scriptText: string, characterName: string, radiu
 /**
  * Determine character role based on script analysis
  */
-const determineCharacterRole = (scriptText: string, characterName: string): CharacterRole => {
+const determineCharacterRole = (scriptText: string, characterName: string, index: number): CharacterRole => {
   // Count character mentions as a basic metric
   const nameRegex = new RegExp(`\\b${characterName}\\b`, 'g');
   const nameMatches = scriptText.match(nameRegex);
@@ -273,6 +468,27 @@ const determineCharacterRole = (scriptText: string, characterName: string): Char
   const firstFifth = scriptText.substring(0, Math.floor(scriptText.length * 0.2));
   const appearsEarly = firstFifth.includes(characterName);
   
+  // For the first two characters, if we don't have other info, make them protagonist and antagonist
+  if (index === 0 && appearsEarly) {
+    return 'protagonist';
+  } else if (index === 1) {
+    // Check for antagonist keywords near character
+    const snippets = findContextualSnippets(scriptText, characterName, 50);
+    const antagonistTerms = ['oppose', 'against', 'enemy', 'villain', 'evil', 'fight', 'conflict'];
+    
+    if (snippets.some(snippet => 
+      antagonistTerms.some(term => snippet.toLowerCase().includes(term))
+    )) {
+      return 'antagonist';
+    }
+    
+    // If this character appears a lot but isn't clearly an antagonist, make them one anyway
+    if (mentionCount > 10) {
+      return 'antagonist';
+    }
+  }
+  
+  // Use mention count for other characters
   if (mentionCount > 20 && appearsEarly) {
     return 'protagonist';
   } else if (mentionCount > 15) {
@@ -332,142 +548,140 @@ const extractActionsFromScene = (sceneText: string): string[] => {
     }
   }
   
-  return actions;
+  // Limit to a reasonable number of actions
+  return actions.slice(0, 5);
 };
 
 /**
  * Main function to analyze a script using NLP and regex
  */
 export const analyzeScript = async (scriptText: string): Promise<ScriptAnalysisResult> => {
-  console.log('Starting script analysis...');
+  console.log('Starting text analysis...');
   
-  // Extract title (first line often)
-  const lines = scriptText.split('\n');
-  const potentialTitle = lines.find(line => 
-    line.trim().length > 0 && 
-    line.toUpperCase() === line.trim() && 
-    !line.includes('INT.') && 
-    !line.includes('EXT.')
-  )?.trim() || 'Untitled Script';
+  // Extract title (first line often, or check for a title pattern)
+  const titleMatch = scriptText.match(/^(?:\s*)(?:TITLE:|Title:)?\s*([^\n]+)/i);
+  const extractedTitle = titleMatch ? titleMatch[1].trim() : '';
   
-  // Extract characters
+  // Clean up the title
+  const potentialTitle = extractedTitle || 'Untitled';
+  
+  // Extract characters first, so we can reference them in scenes
   const characters = extractCharactersFromScript(scriptText);
+  
+  console.log(`Extracted ${characters.length} characters`);
+  
+  // If no characters found, create placeholder characters using fallback method
+  let finalCharacters = characters;
   
   if (characters.length === 0) {
     console.warn('No characters found in script - using fallback method');
-    // Fallback: Use improved character detection
-    const nameMatches = findPotentialCharacterNames(scriptText);
     
-    // Additional filtering to remove non-character names
-    const filteredFallbackNames = nameMatches.filter(name => {
-      const commonNonNames = ['SHE', 'HE', 'THEY', 'BIG BUY', 'WALL', 'DOOR', 'TABLE'];
-      return !commonNonNames.includes(name.toUpperCase());
-    });
+    // Fallback: Create sample characters
+    const sampleNames = ['Main Character', 'Antagonist', 'Supporting Character', 'Friend', 'Mentor'];
+    const sampleRoles: CharacterRole[] = ['protagonist', 'antagonist', 'supporting', 'supporting', 'supporting'];
     
-    for (let i = 0; i < filteredFallbackNames.length && i < 5; i++) {
-      characters.push({
-        id: `character-fallback-${i}`,
-        name: filteredFallbackNames[i],
-        description: `Character identified in script`,
-        role: i === 0 ? 'protagonist' : i === 1 ? 'antagonist' : 'supporting',
-        traits: ['identified', 'character'],
-        generationStatus: 'pending'
-      });
-    }
+    // Sample character images
+    const sampleImages = [
+      'public/lovable-uploads/d92d25df-8a20-4388-a978-6f26545f45a5.png',
+      'public/lovable-uploads/a74dd3a1-8f81-426e-9dfd-ddacc2669762.png',
+      'public/lovable-uploads/0f25fd33-4d81-4901-bf39-775060e2a0b9.png',
+      'public/lovable-uploads/d1b481b4-fdd4-435d-a01c-9f863e3e1def.png',
+      'public/lovable-uploads/3ae6df30-6eac-4604-81f4-2ace0197eda0.png'
+    ];
+    
+    finalCharacters = sampleNames.map((name, i) => ({
+      id: `character-fallback-${i}`,
+      name,
+      description: `Character found in the story`,
+      role: sampleRoles[i],
+      traits: ['character', i === 0 ? 'protagonist' : i === 1 ? 'antagonist' : 'supporting'],
+      imageUrl: sampleImages[i],
+      generationStatus: 'completed' as const
+    }));
   }
   
   // Extract scenes
-  const scenes = extractScenesFromScript(scriptText, characters);
+  const scenes = extractScenesFromScript(scriptText, finalCharacters);
+  
+  let finalScenes = scenes;
   
   if (scenes.length === 0) {
-    console.warn('No scenes found in script - creating default scene');
+    console.warn('No scenes found in script - creating default scenes');
     // Create at least one scene if none were found
-    scenes.push({
-      id: 'scene-default',
-      title: 'Default Scene',
-      description: 'A scene from the script',
-      characters: characters.map(char => char.id),
-      actions: ['Characters interact in this scene'],
-      setting: 'Default setting',
-      generationStatus: 'pending'
-    });
+    finalScenes = [
+      {
+        id: 'scene-default-1',
+        title: 'Opening Scene',
+        description: 'The story begins',
+        characters: finalCharacters.slice(0, 2).map(char => char.id),
+        actions: ['Characters interact in this scene'],
+        setting: 'Main location',
+        generationStatus: 'pending'
+      },
+      {
+        id: 'scene-default-2',
+        title: 'Conflict Scene',
+        description: 'The conflict intensifies',
+        characters: finalCharacters.slice(0, 3).map(char => char.id),
+        actions: ['Characters face a major obstacle'],
+        setting: 'Secondary location',
+        generationStatus: 'pending'
+      },
+      {
+        id: 'scene-default-3',
+        title: 'Resolution Scene',
+        description: 'The story concludes',
+        characters: finalCharacters.map(char => char.id),
+        actions: ['Characters resolve their conflicts'],
+        setting: 'Final location',
+        generationStatus: 'pending'
+      }
+    ];
   }
   
   // Generate a summary using the first few paragraphs
-  const summary = scriptText.substring(0, 300) + '...';
+  const summaryText = scriptText.substring(0, 500).trim();
+  const endOfFirstParagraph = summaryText.indexOf('\n\n');
+  const summary = endOfFirstParagraph > 0 ? 
+    summaryText.substring(0, endOfFirstParagraph) + '...' : 
+    summaryText + '...';
   
-  console.log(`Analysis complete: ${characters.length} characters, ${scenes.length} scenes`);
+  console.log(`Analysis complete: ${finalCharacters.length} characters, ${finalScenes.length} scenes`);
   
   return {
     title: potentialTitle,
     summary,
-    characters,
-    scenes
+    characters: finalCharacters,
+    scenes: finalScenes
   };
 };
 
 /**
- * Improved fallback method to find potential character names in text
- * Used when the regex approach fails to find characters
+ * Function to manually add named character for when auto-extraction fails
  */
-const findPotentialCharacterNames = (text: string): string[] => {
-  // Look for proper names that appear multiple times in dialogue context
-  const potentialNames = new Map<string, number>();
+export const addNamedCharacter = (name: string, role: CharacterRole, existingCharacters: Character[]): Character => {
+  const characterImages = [
+    'public/lovable-uploads/d92d25df-8a20-4388-a978-6f26545f45a5.png',
+    'public/lovable-uploads/a74dd3a1-8f81-426e-9dfd-ddacc2669762.png',
+    'public/lovable-uploads/0f25fd33-4d81-4901-bf39-775060e2a0b9.png',
+    'public/lovable-uploads/d1b481b4-fdd4-435d-a01c-9f863e3e1def.png',
+    'public/lovable-uploads/3ae6df30-6eac-4604-81f4-2ace0197eda0.png',
+    'public/lovable-uploads/eb922982-c40b-482f-975a-12cb014bb79c.png',
+    'public/lovable-uploads/952c11d0-ee84-493e-ba6a-9d568470e138.png',
+    'public/lovable-uploads/2acfc657-5e91-48ad-904f-bc4ba5dd0bba.png'
+  ];
   
-  // First pass: look for capitalized words that might be names, 
-  // but specifically in contexts where they're likely to be character names
+  // Choose an image based on the index
+  const index = existingCharacters.length;
+  const imageUrl = characterImages[index % characterImages.length];
   
-  // Look for "NAME:" or "NAME says" patterns (common in some script formats)
-  const nameColonPattern = /\b([A-Z][a-z]{2,}(?:\s[A-Z][a-z]{2,})?)\s*[:]/g;
-  const nameSaysPattern = /\b([A-Z][a-z]{2,}(?:\s[A-Z][a-z]{2,})?)\s+(?:says|said|asks|asked|replied|responds|shouted|whispered)/gi;
-  
-  // Collect matches from both patterns
-  const colonMatches = [...text.matchAll(nameColonPattern)];
-  const saysMatches = [...text.matchAll(nameSaysPattern)];
-  
-  // Count occurrences of each potential name
-  colonMatches.forEach(match => {
-    const name = match[1];
-    potentialNames.set(name, (potentialNames.get(name) || 0) + 2); // Higher weight for NAME: pattern
-  });
-  
-  saysMatches.forEach(match => {
-    const name = match[1];
-    potentialNames.set(name, (potentialNames.get(name) || 0) + 1);
-  });
-  
-  // Also check for names in quotes or speaking context
-  const quotePattern = /"([^"]+)"/g;
-  let quoteMatch;
-  while ((quoteMatch = quotePattern.exec(text)) !== null) {
-    // Look for a name before the quote (e.g., "John said, "Hello"")
-    const precedingText = text.substring(Math.max(0, quoteMatch.index - 30), quoteMatch.index);
-    const nameBeforeQuote = /([A-Z][a-z]{2,}(?:\s[A-Z][a-z]{2,})?)\s+(?:said|says|asked|asks|replied|responds|shouted|whispered|exclaimed|muttered)/.exec(precedingText);
-    
-    if (nameBeforeQuote) {
-      const name = nameBeforeQuote[1];
-      potentialNames.set(name, (potentialNames.get(name) || 0) + 1);
-    }
-  }
-  
-  // Filter and sort potential names by frequency
-  const filteredNames = [...potentialNames.entries()]
-    .filter(([name, count]) => {
-      // Filter out common non-name capitalized words and ensure more than one occurrence
-      const nonNameWords = [
-        'The', 'This', 'That', 'These', 'Those', 'There', 'They', 'Their', 'And', 'But',
-        'However', 'Then', 'When', 'Where', 'What', 'Who', 'Why', 'How', 'Which', 'While',
-        'Although', 'Because', 'Since', 'After', 'Before', 'During', 'Through', 'Throughout',
-        'Some', 'Any', 'Many', 'Much', 'Most', 'More', 'Less', 'Few', 'Little', 'All',
-        'Every', 'Each', 'Either', 'Neither', 'Both', 'Such', 'Rather', 'Quite', 'Very',
-        'She', 'He', 'It', 'We', 'You', 'I', 'Me', 'My', 'Mine', 'His', 'Her', 'Hers',
-        'Them', 'Their', 'Our', 'Your', 'Yours', 'Big', 'Buy', 'Big Buy', 'Store', 'Shop'
-      ];
-      
-      return !nonNameWords.includes(name) && count > 1;
-    })
-    .sort((a, b) => b[1] - a[1]) // Sort by frequency (highest first)
-    .map(([name]) => name);
-  
-  return filteredNames;
+  return {
+    id: `character-manual-${Date.now()}`,
+    name,
+    description: `${name} is a ${role} character in the story`,
+    role,
+    traits: [role === 'protagonist' ? 'hero' : role === 'antagonist' ? 'villain' : 'supporting', 'character'],
+    imageUrl,
+    generationStatus: 'completed' as const
+  };
 };

@@ -3,13 +3,18 @@ import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Character, CharacterRole, ScriptAnalysisResult } from '@/lib/types';
-import { Users, UserCheck, UserCircle, Sparkles } from 'lucide-react';
+import { Users, UserCheck, UserCircle, Sparkles, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import CharacterCard from './CharacterCard';
 import { toast } from 'sonner';
 import { generateCharacterImage } from '@/lib/storyboardGeneration';
 import { initializeTextToImagePipeline } from '@/lib/storyboardGeneration';
 import { Progress } from '@/components/ui/progress';
+import { addNamedCharacter } from '@/lib/characterExtraction';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface CharacterExtractorProps {
   analysisResult: ScriptAnalysisResult | null;
@@ -26,6 +31,9 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
   const [characters, setCharacters] = useState<Character[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [newCharacterName, setNewCharacterName] = useState('');
+  const [newCharacterRole, setNewCharacterRole] = useState<CharacterRole>('supporting');
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   
   useEffect(() => {
     if (analysisResult?.characters) {
@@ -166,6 +174,30 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
       );
     }
   };
+  
+  const handleAddCharacter = () => {
+    if (!newCharacterName.trim()) {
+      toast.error('Please enter a character name');
+      return;
+    }
+    
+    // Create new character
+    const newCharacter = addNamedCharacter(newCharacterName, newCharacterRole, characters);
+    
+    // Add to character list
+    const updatedCharacters = [...characters, newCharacter];
+    setCharacters(updatedCharacters);
+    
+    // Update parent component
+    onCharactersGenerated(updatedCharacters);
+    
+    // Reset form and close dialog
+    setNewCharacterName('');
+    setNewCharacterRole('supporting');
+    setIsAddDialogOpen(false);
+    
+    toast.success(`Added character: ${newCharacterName}`);
+  };
 
   // Filter characters based on active tab
   const filteredCharacters = characters.filter(char => {
@@ -196,16 +228,68 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
             <Users className="h-5 w-5 text-primary" />
             <span>Characters ({characters.length})</span>
           </div>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="text-xs"
-            onClick={handleGenerateAllImages}
-            disabled={isGenerating || characters.length === 0}
-          >
-            <Sparkles className="h-3.5 w-3.5 mr-1" />
-            {isGenerating ? 'Generating...' : 'Generate All Images'}
-          </Button>
+          <div className="flex gap-2">
+            <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="text-xs">
+                  <UserPlus className="h-3.5 w-3.5 mr-1" />
+                  Add Character
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add New Character</DialogTitle>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="name" className="text-right">
+                      Name
+                    </Label>
+                    <Input
+                      id="name"
+                      value={newCharacterName}
+                      onChange={(e) => setNewCharacterName(e.target.value)}
+                      className="col-span-3"
+                      placeholder="Enter character name"
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="role" className="text-right">
+                      Role
+                    </Label>
+                    <Select 
+                      value={newCharacterRole} 
+                      onValueChange={(value) => setNewCharacterRole(value as CharacterRole)}
+                    >
+                      <SelectTrigger className="col-span-3">
+                        <SelectValue placeholder="Select a role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="protagonist">Protagonist</SelectItem>
+                        <SelectItem value="antagonist">Antagonist</SelectItem>
+                        <SelectItem value="supporting">Supporting</SelectItem>
+                        <SelectItem value="minor">Minor</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button onClick={handleAddCharacter}>Add Character</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="text-xs"
+              onClick={handleGenerateAllImages}
+              disabled={isGenerating || characters.length === 0}
+            >
+              <Sparkles className="h-3.5 w-3.5 mr-1" />
+              {isGenerating ? 'Generating...' : 'Generate All Images'}
+            </Button>
+          </div>
         </CardTitle>
       </CardHeader>
       
@@ -262,7 +346,7 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
               ) : (
                 <div className="col-span-full py-8 text-center text-muted-foreground">
                   <UserCircle className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                  <p>No characters found in this category</p>
+                  <p>No characters found. Try adding a character manually.</p>
                 </div>
               )}
             </div>
@@ -281,7 +365,7 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
               ) : (
                 <div className="col-span-full py-8 text-center text-muted-foreground">
                   <UserCircle className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                  <p>No protagonists found</p>
+                  <p>No protagonists found. Try adding one manually.</p>
                 </div>
               )}
             </div>
@@ -300,7 +384,7 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
               ) : (
                 <div className="col-span-full py-8 text-center text-muted-foreground">
                   <UserCircle className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                  <p>No antagonists found</p>
+                  <p>No antagonists found. Try adding one manually.</p>
                 </div>
               )}
             </div>
@@ -319,7 +403,7 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
               ) : (
                 <div className="col-span-full py-8 text-center text-muted-foreground">
                   <UserCircle className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                  <p>No supporting characters found</p>
+                  <p>No supporting characters found. Try adding one manually.</p>
                 </div>
               )}
             </div>
