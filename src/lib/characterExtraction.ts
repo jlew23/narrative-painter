@@ -1,3 +1,4 @@
+
 import { Character, CharacterRole, Scene, ScriptAnalysisResult } from './types';
 import { pipeline, env } from '@huggingface/transformers';
 
@@ -30,20 +31,65 @@ export const initializeNLPPipeline = async () => {
 
 /**
  * Extract characters from a script using regex and context analysis
+ * 
+ * Improved to better detect actual character names rather than random capitalized words
  */
 export const extractCharactersFromScript = (scriptText: string): Character[] => {
   console.log('Extracting characters from script...');
   
-  // Improved regex to find potential character names (ALL CAPS lines followed by dialogue)
-  const characterNameRegex = /^([A-Z][A-Z\s]+)(?:\s*\([^)]*\))?\s*$/gm;
-  const characterMatches = [...scriptText.matchAll(characterNameRegex)];
+  // Improved regex to find character names (ALL CAPS followed by dialogue)
+  // This specifically looks for the screenplay format where character names appear before dialogue
+  const characterDialoguePattern = /^([A-Z][A-Z\s'-]+)(?:\s*\([^)]*\))?\s*\n([\s\S]*?)(?=\n\s*\n|\n[A-Z][A-Z\s'-]+|\n$)/gm;
+  const dialogueMatches = [...scriptText.matchAll(characterDialoguePattern)];
   
-  // Get unique character names
-  const characterNames = [...new Set(characterMatches.map(match => match[1].trim()))];
-  console.log('Found potential character names:', characterNames);
+  // Also look for character introductions (NAME, description)
+  const characterIntroPattern = /\b([A-Z][A-Z\s'-]+)(?:,\s+(?:a|an|the)\s+[^,.]*)/gm;
+  const introMatches = [...scriptText.matchAll(characterIntroPattern)];
+  
+  // Get unique character names from both patterns
+  const characterNames = new Set([
+    ...dialogueMatches.map(match => match[1].trim()),
+    ...introMatches.map(match => match[1].trim())
+  ]);
+  
+  // Filter out common script elements that aren't character names
+  const filteredNames = [...characterNames].filter(name => {
+    // Skip common screenplay headings and transitions
+    const nonCharacterTerms = [
+      'INT', 'EXT', 'INT./EXT', 'EXT./INT',
+      'FADE IN', 'FADE OUT', 'CUT TO', 'DISSOLVE TO',
+      'SMASH CUT', 'MATCH CUT', 'JUMP CUT', 'TITLE',
+      'SUPER', 'END CREDITS', 'MONTAGE', 'INTERCUT',
+      'ANGLE ON', 'CLOSE ON', 'SCENE', 'THE END',
+      'FLASHBACK', 'BACK TO', 'CONTINUED', 'LATER',
+      'MOMENTS LATER', 'NIGHT', 'DAY', 'EVENING', 'MORNING',
+      'SAME TIME', 'SUBTITLE', 'TITLE CARD', 'AT THE SAME TIME',
+      'SERIES OF SHOTS', 'SFX', 'POV', 'V.O.', 'O.S.', 'O.C.',
+      'EPISODE', 'CHAPTER', 'ACT'
+    ];
+    
+    // Filter out common non-character terms
+    for (const term of nonCharacterTerms) {
+      if (name === term || name.includes(term + ' ') || name.includes(' ' + term)) {
+        return false;
+      }
+    }
+    
+    // Check for typically single-word location names
+    if (name.split(' ').length === 1 && ['ROOM', 'OFFICE', 'STREET', 'PARK', 'HOUSE', 'APARTMENT'].includes(name)) {
+      return false;
+    }
+    
+    // Check if the name appears standalone multiple times (like an actual character)
+    const nameRegex = new RegExp(`^${name}\\b`, 'gm');
+    const exactMatches = scriptText.match(nameRegex);
+    return exactMatches && exactMatches.length > 1;
+  });
+  
+  console.log('Found potential character names:', filteredNames);
   
   // Create basic character objects
-  return characterNames.map((name, index) => {
+  return filteredNames.map((name, index) => {
     // Find potential description from context
     const description = findCharacterDescription(scriptText, name);
     const role = determineCharacterRole(scriptText, name);
@@ -276,8 +322,8 @@ export const analyzeScript = async (scriptText: string): Promise<ScriptAnalysisR
   
   if (characters.length === 0) {
     console.warn('No characters found in script - using fallback method');
-    // Fallback: Try to identify names in the text using NLP
-    const nameMatches = findPotentialNames(scriptText);
+    // Fallback: Use improved character detection
+    const nameMatches = findPotentialCharacterNames(scriptText);
     for (let i = 0; i < nameMatches.length && i < 5; i++) {
       characters.push({
         id: `character-fallback-${i}`,
@@ -321,24 +367,65 @@ export const analyzeScript = async (scriptText: string): Promise<ScriptAnalysisR
 };
 
 /**
- * Fallback method to find potential character names in text
+ * Improved fallback method to find potential character names in text
  * Used when the regex approach fails to find characters
  */
-const findPotentialNames = (text: string): string[] => {
-  // Look for capitalized words that might be names
-  const potentialNames = new Set<string>();
+const findPotentialCharacterNames = (text: string): string[] => {
+  // Look for proper names that appear multiple times in dialogue context
+  const potentialNames = new Map<string, number>();
   
-  // Simple regex for capitalized words that might be names
-  const nameRegex = /\b[A-Z][a-z]{2,}\b/g;
-  const matches = [...text.matchAll(nameRegex)];
+  // First pass: look for capitalized words that might be names, 
+  // but specifically in contexts where they're likely to be character names
   
-  matches.forEach(match => {
-    const name = match[0];
-    // Filter out common non-name capitalized words
-    if (!['INT', 'EXT', 'THE', 'AND', 'FADE', 'CUT', 'TO', 'SCENE'].includes(name)) {
-      potentialNames.add(name);
-    }
+  // Look for "NAME:" or "NAME says" patterns (common in some script formats)
+  const nameColonPattern = /\b([A-Z][a-z]{2,}(?:\s[A-Z][a-z]{2,})?)\s*[:]/g;
+  const nameSaysPattern = /\b([A-Z][a-z]{2,}(?:\s[A-Z][a-z]{2,})?)\s+(?:says|said|asks|asked|replied|responds|shouted|whispered)/gi;
+  
+  // Collect matches from both patterns
+  const colonMatches = [...text.matchAll(nameColonPattern)];
+  const saysMatches = [...text.matchAll(nameSaysPattern)];
+  
+  // Count occurrences of each potential name
+  colonMatches.forEach(match => {
+    const name = match[1];
+    potentialNames.set(name, (potentialNames.get(name) || 0) + 2); // Higher weight for NAME: pattern
   });
   
-  return [...potentialNames];
+  saysMatches.forEach(match => {
+    const name = match[1];
+    potentialNames.set(name, (potentialNames.get(name) || 0) + 1);
+  });
+  
+  // Also check for names in quotes or speaking context
+  const quotePattern = /"([^"]+)"/g;
+  let quoteMatch;
+  while ((quoteMatch = quotePattern.exec(text)) !== null) {
+    // Look for a name before the quote (e.g., "John said, "Hello"")
+    const precedingText = text.substring(Math.max(0, quoteMatch.index - 30), quoteMatch.index);
+    const nameBeforeQuote = /([A-Z][a-z]{2,}(?:\s[A-Z][a-z]{2,})?)\s+(?:said|says|asked|asks|replied|responds|shouted|whispered|exclaimed|muttered)/.exec(precedingText);
+    
+    if (nameBeforeQuote) {
+      const name = nameBeforeQuote[1];
+      potentialNames.set(name, (potentialNames.get(name) || 0) + 1);
+    }
+  }
+  
+  // Filter and sort potential names by frequency
+  const filteredNames = [...potentialNames.entries()]
+    .filter(([name, count]) => {
+      // Filter out common non-name capitalized words and ensure more than one occurrence
+      const nonNameWords = [
+        'The', 'This', 'That', 'These', 'Those', 'There', 'They', 'Their', 'And', 'But',
+        'However', 'Then', 'When', 'Where', 'What', 'Who', 'Why', 'How', 'Which', 'While',
+        'Although', 'Because', 'Since', 'After', 'Before', 'During', 'Through', 'Throughout',
+        'Some', 'Any', 'Many', 'Much', 'Most', 'More', 'Less', 'Few', 'Little', 'All',
+        'Every', 'Each', 'Either', 'Neither', 'Both', 'Such', 'Rather', 'Quite', 'Very'
+      ];
+      
+      return !nonNameWords.includes(name) && count > 1;
+    })
+    .sort((a, b) => b[1] - a[1]) // Sort by frequency (highest first)
+    .map(([name]) => name);
+  
+  return filteredNames;
 };
