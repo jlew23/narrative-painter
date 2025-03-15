@@ -9,6 +9,7 @@ import CharacterCard from './CharacterCard';
 import { toast } from 'sonner';
 import { generateCharacterImage } from '@/lib/storyboardGeneration';
 import { initializeTextToImagePipeline } from '@/lib/storyboardGeneration';
+import { Progress } from '@/components/ui/progress';
 
 interface CharacterExtractorProps {
   analysisResult: ScriptAnalysisResult | null;
@@ -24,6 +25,7 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
   const [activeTab, setActiveTab] = useState<string>('all');
   const [characters, setCharacters] = useState<Character[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [progress, setProgress] = useState(0);
   
   useEffect(() => {
     if (analysisResult?.characters) {
@@ -45,6 +47,7 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
     }));
     setCharacters(updatingCharacters);
     setIsGenerating(true);
+    setProgress(0);
     toast.success('Generating character images...');
     
     try {
@@ -61,8 +64,12 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
           generatedCharacters[i] = {
             ...char,
             imageUrl,
-            generationStatus: 'completed' as const
+            generationStatus: 'completed'
           };
+          
+          // Update progress
+          const newProgress = Math.round(((i + 1) / generatedCharacters.length) * 100);
+          setProgress(newProgress);
           
           // Update the state to show progress
           setCharacters([...generatedCharacters]);
@@ -71,7 +78,7 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
           generatedCharacters[i] = {
             ...char,
             imageUrl: '/placeholder.svg',
-            generationStatus: 'failed' as const
+            generationStatus: 'failed'
           };
         }
       }
@@ -87,13 +94,14 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
       const fallbackCharacters = characters.map(char => ({
         ...char,
         imageUrl: '/placeholder.svg',
-        generationStatus: 'completed' as const
+        generationStatus: 'completed'
       }));
       
       setCharacters(fallbackCharacters);
       onCharactersGenerated(fallbackCharacters);
     } finally {
       setIsGenerating(false);
+      setProgress(100);
     }
   };
 
@@ -131,7 +139,7 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
             ? {
                 ...char, 
                 imageUrl,
-                generationStatus: 'completed' as const
+                generationStatus: 'completed'
               }
             : char
         )
@@ -151,7 +159,7 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
             ? {
                 ...char, 
                 imageUrl: '/placeholder.svg',
-                generationStatus: 'completed' as const
+                generationStatus: 'failed'
               }
             : char
         )
@@ -200,6 +208,15 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
           </Button>
         </CardTitle>
       </CardHeader>
+      
+      {isGenerating && (
+        <div className="px-4 py-2">
+          <Progress value={progress} className="h-2" />
+          <p className="text-xs text-center mt-1 text-muted-foreground">
+            Generating images... {progress}%
+          </p>
+        </div>
+      )}
       
       <CardContent className="p-0">
         <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab}>

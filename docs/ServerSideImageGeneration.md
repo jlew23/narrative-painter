@@ -1,4 +1,3 @@
-
 # Server-Side Image Generation Guide
 
 The current implementation uses browser-based models with limited capabilities. For production-quality image generation, we recommend implementing server-side processing with more powerful models. This document explains how to set up server-side image generation.
@@ -107,6 +106,33 @@ async def generate_image(request: ImageRequest):
         raise HTTPException(status_code=500, detail=str(e))
 ```
 
+### Option 3: Free Hugging Face Inference API (with Limitations)
+
+If you don't want to host your own server, you can use the Hugging Face Inference API directly:
+
+```javascript
+// Example frontend code to call Hugging Face Inference API
+async function generateImage(prompt) {
+  const response = await fetch(
+    "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.HUGGINGFACE_API_TOKEN}`,
+      },
+      body: JSON.stringify({
+        inputs: prompt,
+      }),
+    }
+  );
+
+  // The response is the image binary
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+}
+```
+
 ## 2. Update Frontend Code
 
 Modify the existing functions in `storyboardGeneration.ts` to call your server API instead of using browser-based models:
@@ -149,6 +175,7 @@ For hosting the image generation server, consider:
 2. **Google Cloud Run with GPU** - Serverless with pay-per-use pricing
 3. **AWS Lambda with GPU** - Serverless option with AWS ecosystem
 4. **Hugging Face Inference Endpoints** - Managed API service for ML models
+5. **RunPod** - GPU cloud platform with affordable pricing for inference
 
 ## 4. Optimizations
 
@@ -157,16 +184,61 @@ For hosting the image generation server, consider:
 - **Queue System**: Use a queue system like RabbitMQ or Redis for managing generation requests
 - **Progressive Loading**: Show low-resolution previews while high-quality images are being generated
 
-## 5. Cost Management
+## 5. Switching Implementation
+
+To switch from browser-based to server-side implementation:
+
+1. Develop and deploy the server-side component using one of the approaches above
+2. Update the `.env` file to include your server URL: `VITE_IMAGE_GEN_API_URL=http://your-server`
+3. Modify the `generateCharacterImage` and `generateSceneImage` functions in `storyboardGeneration.ts` to call the server API
+
+Example implementation switch:
+
+```typescript
+export const generateCharacterImage = async (character: Character): Promise<string> => {
+  console.log(`Generating image for character: ${character.name}`);
+  
+  // Create prompt for the API
+  const prompt = formatCharacterForPrompt(character);
+  
+  // Check if server-side API is configured
+  const apiUrl = import.meta.env.VITE_IMAGE_GEN_API_URL;
+  
+  if (apiUrl) {
+    // Use server-side generation
+    try {
+      const response = await fetch(`${apiUrl}/generate-image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      
+      if (!response.ok) throw new Error('Server image generation failed');
+      
+      const data = await response.json();
+      return data.imageUrl;
+    } catch (error) {
+      console.error('Server image generation error:', error);
+      // Fall back to browser generation or placeholder
+    }
+  }
+  
+  // Fall back to browser-based generation or placeholder
+  // ... existing browser-based code
+};
+```
+
+## 6. Cost Management
 
 - Use smaller models for faster generation and lower costs
 - Implement rate limiting to prevent excessive usage
 - Consider using LoRA (Low-Rank Adaptation) fine-tuned models for specific styles
 - Use a CDN to cache and deliver generated images
 
-## 6. Security Considerations
+## 7. Security Considerations
 
 - Implement user authentication and rate limiting
 - Filter inappropriate prompts before processing
 - Set up CORS properly to restrict API access to your domain
 - Use HTTPS for all API communication
+- Consider implementing a token-based system for image generation requests
