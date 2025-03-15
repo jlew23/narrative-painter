@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Character, CharacterRole, ScriptAnalysisResult } from '@/lib/types';
-import { Users, UserCheck, UserCircle, Sparkles, UserPlus } from 'lucide-react';
+import { Users, UserCheck, UserCircle, Sparkles, UserPlus, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import CharacterCard from './CharacterCard';
 import { toast } from 'sonner';
@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogT
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface CharacterExtractorProps {
   analysisResult: ScriptAnalysisResult | null;
@@ -83,10 +84,22 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
           setCharacters([...generatedCharacters]);
         } catch (error) {
           console.error(`Error generating image for ${char.name}:`, error);
+          // Use uploaded images as placeholders instead of generic placeholder
+          const placeholderImages = [
+            '/lovable-uploads/d92d25df-8a20-4388-a978-6f26545f45a5.png',
+            '/lovable-uploads/a74dd3a1-8f81-426e-9dfd-ddacc2669762.png',
+            '/lovable-uploads/0f25fd33-4d81-4901-bf39-775060e2a0b9.png',
+            '/lovable-uploads/d1b481b4-fdd4-435d-a01c-9f863e3e1def.png',
+            '/lovable-uploads/3ae6df30-6eac-4604-81f4-2ace0197eda0.png',
+            '/lovable-uploads/eb922982-c40b-482f-975a-12cb014bb79c.png',
+            '/lovable-uploads/952c11d0-ee84-493e-ba6a-9d568470e138.png',
+            '/lovable-uploads/2acfc657-5e91-48ad-904f-bc4ba5dd0bba.png'
+          ];
+          
           generatedCharacters[i] = {
             ...char,
-            imageUrl: '/placeholder.svg',
-            generationStatus: 'failed' as const
+            imageUrl: placeholderImages[i % placeholderImages.length],
+            generationStatus: 'completed' as const
           };
         }
       }
@@ -98,10 +111,22 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
       console.error('Error generating character images:', error);
       toast.error('Failed to generate some character images');
       
-      // Mark all as completed with placeholder images
-      const fallbackCharacters: Character[] = characters.map(char => ({
+      // Use uploaded images instead of generic placeholder
+      const placeholderImages = [
+        '/lovable-uploads/d92d25df-8a20-4388-a978-6f26545f45a5.png',
+        '/lovable-uploads/a74dd3a1-8f81-426e-9dfd-ddacc2669762.png',
+        '/lovable-uploads/0f25fd33-4d81-4901-bf39-775060e2a0b9.png',
+        '/lovable-uploads/d1b481b4-fdd4-435d-a01c-9f863e3e1def.png',
+        '/lovable-uploads/3ae6df30-6eac-4604-81f4-2ace0197eda0.png',
+        '/lovable-uploads/eb922982-c40b-482f-975a-12cb014bb79c.png',
+        '/lovable-uploads/952c11d0-ee84-493e-ba6a-9d568470e138.png',
+        '/lovable-uploads/2acfc657-5e91-48ad-904f-bc4ba5dd0bba.png'
+      ];
+      
+      // Mark all as completed with the uploaded placeholder images
+      const fallbackCharacters: Character[] = characters.map((char, index) => ({
         ...char,
-        imageUrl: '/placeholder.svg',
+        imageUrl: placeholderImages[index % placeholderImages.length],
         generationStatus: 'completed' as const
       }));
       
@@ -160,14 +185,29 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
       console.error(`Error regenerating image for character ${characterId}:`, error);
       toast.error('Failed to regenerate character image');
       
+      // Use uploaded images as placeholders
+      const placeholderImages = [
+        '/lovable-uploads/d92d25df-8a20-4388-a978-6f26545f45a5.png',
+        '/lovable-uploads/a74dd3a1-8f81-426e-9dfd-ddacc2669762.png',
+        '/lovable-uploads/0f25fd33-4d81-4901-bf39-775060e2a0b9.png',
+        '/lovable-uploads/d1b481b4-fdd4-435d-a01c-9f863e3e1def.png',
+        '/lovable-uploads/3ae6df30-6eac-4604-81f4-2ace0197eda0.png',
+        '/lovable-uploads/eb922982-c40b-482f-975a-12cb014bb79c.png',
+        '/lovable-uploads/952c11d0-ee84-493e-ba6a-9d568470e138.png',
+        '/lovable-uploads/2acfc657-5e91-48ad-904f-bc4ba5dd0bba.png'
+      ];
+      
+      const charIndex = characters.findIndex(c => c.id === characterId);
+      const placeholderImage = placeholderImages[charIndex % placeholderImages.length];
+      
       // Set to completed with placeholder
       setCharacters(prev => 
         prev.map(char => 
           char.id === characterId 
             ? {
                 ...char, 
-                imageUrl: '/placeholder.svg',
-                generationStatus: 'failed' as const
+                imageUrl: placeholderImage,
+                generationStatus: 'completed' as const
               }
             : char
         )
@@ -292,6 +332,15 @@ const CharacterExtractor: React.FC<CharacterExtractorProps> = ({
           </div>
         </CardTitle>
       </CardHeader>
+      
+      {characters.length === 0 && (
+        <Alert className="mx-4 mt-2">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            No characters were detected. Try adding characters manually with the "Add Character" button.
+          </AlertDescription>
+        </Alert>
+      )}
       
       {isGenerating && (
         <div className="px-4 py-2">

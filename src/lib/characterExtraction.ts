@@ -1,4 +1,3 @@
-
 import { Character, CharacterRole, Scene, ScriptAnalysisResult } from './types';
 import { pipeline, env } from '@huggingface/transformers';
 
@@ -36,20 +35,19 @@ export const extractCharactersFromScript = (scriptText: string): Character[] => 
   console.log('Extracting characters from text...');
   
   // Try screenplay format first (ALL CAPS followed by dialogue)
-  const characterDialoguePattern = /^([A-Z][A-Z\s'-]+)(?:\s*\([^)]*\))?\s*\n([\s\S]*?)(?=\n\s*\n|\n[A-Z][A-Z\s'-]+|\n$)/gm;
+  const characterDialoguePattern = /\b([A-Z][A-Z\s]+(?![a-z]))\s*[\n:]/gm;
   const dialogueMatches = [...scriptText.matchAll(characterDialoguePattern)];
   
   // Also look for character introductions (NAME, description)
-  const characterIntroPattern = /\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)(?:,\s+(?:a|an|the|who|is)\s+[^,.]*)/gm;
+  const characterIntroPattern = /\b([A-Z][a-z]+(?:\s[A-Z][a-z]+){0,2})(?:,\s+(?:a|an|the|who|is)\s+[^,.]*)/gm;
   const introMatches = [...scriptText.matchAll(characterIntroPattern)];
   
-  // For regular stories, look for proper nouns that appear frequently
-  // This pattern looks for capitalized words that aren't at the start of sentences
-  const properNounPattern = /(?<![.!?]\s)(?<!\n)(\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)*\b)/g;
-  const properNouns = [...scriptText.matchAll(properNounPattern)];
+  // For regular stories, look for proper nouns that appear frequently and are followed by dialogue
+  const dialogueAfterName = /\b([A-Z][a-z]+(?:\s[A-Z][a-z]+){0,2})(?:\s*(?:said|asked|replied|shouted|whispered|exclaimed|called|yelled|responded|spoke|told)|\s*[,:"])/gm;
+  const dialogueNameMatches = [...scriptText.matchAll(dialogueAfterName)];
   
   // Also look for quotes with attribution, like: "Hello," said John.
-  const quotePattern = /"[^"]+"\s*(?:,)?\s*(?:said|asked|replied|whispered|shouted|exclaimed|called|responded)\s+([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)/g;
+  const quotePattern = /"[^"]+"\s*(?:,)?\s*(?:said|asked|replied|whispered|shouted|exclaimed|called|responded)\s+([A-Z][a-z]+(?:\s[A-Z][a-z]+){0,2})/g;
   const quoteMatches = [...scriptText.matchAll(quotePattern)];
   
   // Collect potential names from all methods
@@ -67,23 +65,23 @@ export const extractCharactersFromScript = (scriptText: string): Character[] => 
     potentialNames.set(name, (potentialNames.get(name) || 0) + 3);
   });
   
+  // Add names from dialogue with medium weight
+  dialogueNameMatches.forEach(match => {
+    const name = match[1].trim();
+    potentialNames.set(name, (potentialNames.get(name) || 0) + 2);
+  });
+  
   // Add names from quotes with medium weight
   quoteMatches.forEach(match => {
     const name = match[1].trim();
     potentialNames.set(name, (potentialNames.get(name) || 0) + 2);
   });
   
-  // Add proper nouns with lower weight
-  properNouns.forEach(match => {
-    const name = match[1].trim();
-    potentialNames.set(name, (potentialNames.get(name) || 0) + 1);
-  });
-  
   // Filter and sort potential names
   const sortedNames = [...potentialNames.entries()]
     .filter(([name, count]) => {
-      // Must occur at least twice
-      if (count < 2) return false;
+      // Must occur at least twice, or 3 times for single-word names to reduce false positives
+      if (count < 2 || (name.indexOf(' ') === -1 && count < 3)) return false;
       
       // Skip common non-character terms
       const nonCharacterTerms = [
@@ -96,7 +94,8 @@ export const extractCharactersFromScript = (scriptText: string): Character[] => 
         'MOMENTS LATER', 'NIGHT', 'DAY', 'EVENING', 'MORNING',
         'SAME TIME', 'SUBTITLE', 'TITLE CARD', 'AT THE SAME TIME',
         'SERIES OF SHOTS', 'SFX', 'POV', 'V.O.', 'O.S.', 'O.C.',
-        'EPISODE', 'CHAPTER', 'ACT'
+        'EPISODE', 'CHAPTER', 'ACT', 'RUSSIAN', 'AMERICAN', 'ENGLISH',
+        'MUSIC', 'SOUND', 'IMAGE', 'FOCUS', 'CAMERA', 'VOICE'
       ];
       
       // Skip pronouns and common terms
@@ -112,7 +111,14 @@ export const extractCharactersFromScript = (scriptText: string): Character[] => 
         'BIG BUY', 'WALMART', 'TARGET', 'STARBUCKS', 'MCDONALDS', 'MALL', 'CINEMA',
         'THEATER', 'COFFEE SHOP', 'DINER', 'RESTAURANT', 'SHOP', 'STORE', 'MARKET',
         'SUPERMARKET', 'PHARMACY', 'HOSPITAL', 'SCHOOL', 'UNIVERSITY', 'COLLEGE',
-        'LIBRARY', 'BANK', 'POLICE STATION', 'FIRE STATION', 'GAS STATION'
+        'LIBRARY', 'BANK', 'POLICE STATION', 'FIRE STATION', 'GAS STATION', 'HOUSE',
+        'HOME', 'APARTMENT', 'OFFICE', 'BUILDING', 'ROOM', 'KITCHEN', 'BEDROOM', 'BATHROOM',
+        'LIVING ROOM', 'DINING ROOM', 'GARAGE', 'YARD', 'GARDEN', 'PARK', 'STREET',
+        'ROAD', 'AVENUE', 'BOULEVARD', 'LANE', 'DRIVE', 'COURT', 'PLAZA', 'SQUARE',
+        'PLACE', 'HALL', 'STAIR', 'STAIRS', 'ELEVATOR', 'TRAIN STATION', 'BUS STOP',
+        'AIRPORT', 'HARBOR', 'PORT', 'DOCK', 'BRIDGE', 'TUNNEL', 'FOREST', 'WOODS',
+        'RIVER', 'LAKE', 'OCEAN', 'SEA', 'MOUNTAIN', 'HILL', 'VALLEY', 'DESERT',
+        'BEACH', 'ISLAND', 'SUPERMARKET', 'LABORATORY', 'LAB', 'BASE'
       ];
       
       // Skip months, days, and time-related terms
@@ -120,17 +126,31 @@ export const extractCharactersFromScript = (scriptText: string): Character[] => 
         'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 
         'September', 'October', 'November', 'December', 'Monday', 'Tuesday', 
         'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', 'Today', 'Tomorrow', 
-        'Yesterday', 'Morning', 'Afternoon', 'Evening', 'Night'
+        'Yesterday', 'Morning', 'Afternoon', 'Evening', 'Night', 'Dawn', 'Dusk',
+        'Midnight', 'Noon', 'Winter', 'Spring', 'Summer', 'Fall', 'Autumn',
+        'Century', 'Decade', 'Year', 'Month', 'Week', 'Day', 'Hour', 'Minute', 'Second'
+      ];
+      
+      // Skip nationalities and groups when they appear alone (not part of a name)
+      const groupTerms = [
+        'American', 'Russian', 'British', 'English', 'Chinese', 'Japanese', 'French', 'German',
+        'Italian', 'Spanish', 'Mexican', 'Canadian', 'Australian', 'Indian', 'African',
+        'European', 'Asian', 'Middle Eastern', 'Latin American', 'South American',
+        'Team', 'Group', 'Squad', 'Force', 'Unit', 'Crew', 'Staff', 'Workers',
+        'Employees', 'Management', 'Administration', 'Board', 'Committee', 'Council',
+        'Army', 'Navy', 'Air Force', 'Marines', 'Police', 'Department', 'Agency',
+        'Bureau', 'Office', 'Division', 'Family', 'Friends', 'Neighbors'
       ];
       
       // Skip common titles
       const titles = [
         'Mr', 'Mrs', 'Ms', 'Dr', 'Prof', 'Sir', 'Lady', 'Lord', 'Captain', 
-        'Lieutenant', 'Sergeant', 'Officer', 'Detective', 'Judge', 'President'
+        'Lieutenant', 'Sergeant', 'Officer', 'Detective', 'Judge', 'President',
+        'Director', 'Manager', 'Supervisor', 'Chief', 'Boss', 'Head', 'Leader'
       ];
       
       // Check against all exclusion lists
-      for (const term of [...nonCharacterTerms, ...commonPronouns, ...businessNames, ...timeTerms]) {
+      for (const term of [...nonCharacterTerms, ...commonPronouns, ...businessNames, ...timeTerms, ...groupTerms]) {
         if (name === term || name.includes(term + ' ') || name.includes(' ' + term)) {
           return false;
         }
@@ -146,11 +166,12 @@ export const extractCharactersFromScript = (scriptText: string): Character[] => 
         return false;
       }
       
-      // Skip if name is all uppercase (likely a header)
+      // Skip if name is all uppercase (likely a header) and longer than 3 characters
       if (name === name.toUpperCase() && name.length > 3) {
         // Check if it's used in dialogue context
         const nameRegex = new RegExp(`"[^"]+"\s*(?:,)?\s*(?:said|asked|replied)\s+${name}\\b`, 'i');
-        if (!scriptText.match(nameRegex)) {
+        const dialogueRegex = new RegExp(`${name}\\s*[:"]`, 'i');
+        if (!scriptText.match(nameRegex) && !scriptText.match(dialogueRegex)) {
           return false;
         }
       }
@@ -161,42 +182,66 @@ export const extractCharactersFromScript = (scriptText: string): Character[] => 
   
   console.log('Found potential character names:', sortedNames.map(n => n[0]));
   
-  // Take the top names (up to 10)
-  const filteredNames = sortedNames.slice(0, 10).map(([name]) => name);
+  // Take the top names (up to 15)
+  const filteredNames = sortedNames.slice(0, 15).map(([name]) => name);
   
   // Create character objects
   return filteredNames.map((name, index) => {
+    // More conservative approach to role assignment
+    let role: CharacterRole = 'unknown';
+    
+    // Check for protagonist indicators - appears early and frequently
+    const firstFifth = scriptText.substring(0, Math.floor(scriptText.length * 0.2));
+    const nameMatches = scriptText.match(new RegExp(`\\b${name}\\b`, 'g')) || [];
+    const mentionCount = nameMatches.length;
+    
+    // First character with many mentions is likely protagonist
+    if (index === 0 && mentionCount > 10 && firstFifth.includes(name)) {
+      role = 'protagonist';
+    } 
+    // Supporting characters based on mention frequency
+    else if (mentionCount > 5) {
+      role = 'supporting';
+    }
+    // Minor characters for less frequent mentions
+    else {
+      role = 'minor';
+    }
+    
+    // Only mark as antagonist if clear antagonistic terms are used nearby
+    const snippets = findContextualSnippets(scriptText, name, 100);
+    const antagonistTerms = ['enemy', 'villain', 'evil', 'against', 'opponent', 'rival', 'nemesis', 'threat'];
+    if (snippets.some(snippet => antagonistTerms.some(term => snippet.toLowerCase().includes(term)))) {
+      role = 'antagonist';
+    }
+    
     // Find potential description
-    const description = findCharacterDescription(scriptText, name) || generateCharacterDescription(name);
-    const role = determineCharacterRole(scriptText, name, index);
+    const description = findCharacterDescription(scriptText, name);
+    
+    // Extract more accurate character traits
     const traits = extractCharacterTraits(scriptText, name);
     
-    // Map each character to a pre-loaded image
-    const sampleCharacterImages = [
-      'public/lovable-uploads/d92d25df-8a20-4388-a978-6f26545f45a5.png',
-      'public/lovable-uploads/a74dd3a1-8f81-426e-9dfd-ddacc2669762.png',
-      'public/lovable-uploads/0f25fd33-4d81-4901-bf39-775060e2a0b9.png',
-      'public/lovable-uploads/d1b481b4-fdd4-435d-a01c-9f863e3e1def.png',
-      'public/lovable-uploads/3ae6df30-6eac-4604-81f4-2ace0197eda0.png',
-      'public/lovable-uploads/eb922982-c40b-482f-975a-12cb014bb79c.png',
-      'public/lovable-uploads/952c11d0-ee84-493e-ba6a-9d568470e138.png',
-      'public/lovable-uploads/2acfc657-5e91-48ad-904f-bc4ba5dd0bba.png',
-      'public/lovable-uploads/257a14ff-d8b2-449b-9714-2adf734dea5e.png',
-      'public/lovable-uploads/7d748bce-f662-452b-8c5a-7cacb3c1bffc.png',
-      'public/lovable-uploads/9bf47792-550a-4844-bd52-4026d2891a7e.png',
-      'public/lovable-uploads/ba09d797-4d1f-4a4f-9260-bce9a87cf234.png',
-      'public/lovable-uploads/c4db05fa-63e4-428c-8270-803dae0b16f0.png',
-      'public/lovable-uploads/c7eb719e-cc7c-4ab0-a119-3f06e4f76fef.png',
-      'public/lovable-uploads/3e8c0049-3cd4-4dac-bcd7-b6291c5a0366.png',
-      'public/lovable-uploads/2141f123-2016-4e63-a2d2-a922280a7fbb.png',
-      'public/lovable-uploads/2a2b23ad-1f40-4bf5-80a0-b09cf1a73e32.png',
-      'public/lovable-uploads/3aa9d41e-8c0c-43e9-94f1-de59a4e04baa.png',
-      'public/lovable-uploads/4b00c6fd-c0bd-45e2-a1bf-72b7c06776f0.png',
-      'public/lovable-uploads/5ec78f1a-f8a6-4e6e-b529-e92e685abd6a.png'
+    // Use the uploaded images for characters
+    const characterImages = [
+      '/lovable-uploads/d92d25df-8a20-4388-a978-6f26545f45a5.png',
+      '/lovable-uploads/a74dd3a1-8f81-426e-9dfd-ddacc2669762.png',
+      '/lovable-uploads/0f25fd33-4d81-4901-bf39-775060e2a0b9.png',
+      '/lovable-uploads/d1b481b4-fdd4-435d-a01c-9f863e3e1def.png',
+      '/lovable-uploads/3ae6df30-6eac-4604-81f4-2ace0197eda0.png',
+      '/lovable-uploads/eb922982-c40b-482f-975a-12cb014bb79c.png',
+      '/lovable-uploads/952c11d0-ee84-493e-ba6a-9d568470e138.png',
+      '/lovable-uploads/2acfc657-5e91-48ad-904f-bc4ba5dd0bba.png',
+      '/lovable-uploads/257a14ff-d8b2-449b-9714-2adf734dea5e.png',
+      '/lovable-uploads/7d748bce-f662-452b-8c5a-7cacb3c1bffc.png',
+      '/lovable-uploads/9bf47792-550a-4844-bd52-4026d2891a7e.png',
+      '/lovable-uploads/ba09d797-4d1f-4a4f-9260-bce9a87cf234.png',
+      '/lovable-uploads/c4db05fa-63e4-428c-8270-803dae0b16f0.png',
+      '/lovable-uploads/c7eb719e-cc7c-4ab0-a119-3f06e4f76fef.png',
+      '/lovable-uploads/3e8c0049-3cd4-4dac-bcd7-b6291c5a0366.png'
     ];
     
-    // Get an image for this character (cycle through the available images)
-    const imageUrl = sampleCharacterImages[index % sampleCharacterImages.length];
+    // Assign image URL, making sure to use the correct path format
+    const imageUrl = characterImages[index % characterImages.length];
     
     console.log(`Character "${name}" extracted with role "${role}"`);
     
@@ -207,24 +252,143 @@ export const extractCharactersFromScript = (scriptText: string): Character[] => 
       role,
       traits,
       imageUrl,
-      generationStatus: 'completed' as const  // Mark as completed since we're using sample images
+      generationStatus: 'completed' as const
     };
   });
 };
 
 /**
- * Generate a description if none is found
+ * Find potential character description from script context
  */
-const generateCharacterDescription = (name: string): string => {
-  const descriptions = [
-    `A mysterious character who plays an important role in the story`,
-    `A character with a complex personality and interesting background`,
-    `An intriguing character that appears throughout the narrative`,
-    `A memorable character with unique traits and characteristics`,
-    `A character whose actions significantly impact the story`
-  ];
+const findCharacterDescription = (scriptText: string, characterName: string): string => {
+  // Look for character name followed by a description (e.g., "JOHN, a 30-year-old detective")
+  const descriptionRegex = new RegExp(`${characterName}(?:\\s*,\\s*|\\s+is\\s+|\\s+was\\s+)([^\\n.]+)[\\n.]`, 'i');
+  const match = scriptText.match(descriptionRegex);
   
-  return descriptions[Math.floor(Math.random() * descriptions.length)];
+  if (match && match[1] && match[1].length > 10) {
+    return match[1].trim();
+  }
+  
+  // Fallback to looking for descriptions near the character name
+  const snippets = findContextualSnippets(scriptText, characterName, 100);
+  
+  // Look for descriptive phrases in snippets
+  for (const snippet of snippets) {
+    const descPhrases = [
+      new RegExp(`${characterName}\\s+(?:is|was)\\s+([^.]+)`, 'i'),
+      new RegExp(`${characterName}\\s*,\\s*([^.]+)`, 'i'),
+      new RegExp(`(?:the|a|an)\\s+([\\w\\s-]+)\\s+${characterName}`, 'i')
+    ];
+    
+    for (const phrase of descPhrases) {
+      const phraseMatch = snippet.match(phrase);
+      if (phraseMatch && phraseMatch[1] && phraseMatch[1].length > 10) {
+        return phraseMatch[1].trim();
+      }
+    }
+  }
+  
+  // Generate a sensible default description based on their role in the story
+  const defaultDescriptions = {
+    protagonist: "A central character in the story",
+    antagonist: "A character who creates conflict in the story",
+    supporting: "A character who plays a supporting role in the story",
+    minor: "A minor character who appears briefly in the story",
+    unknown: "A character who appears in the story"
+  };
+  
+  // Find the role by analyzing the script
+  const dialogueCount = (scriptText.match(new RegExp(`\\b${characterName}\\b`, 'g')) || []).length;
+  let role: CharacterRole = 'unknown';
+  
+  if (dialogueCount > 20) {
+    role = 'protagonist';
+  } else if (dialogueCount > 10) {
+    role = 'supporting';
+  } else {
+    role = 'minor';
+  }
+  
+  return defaultDescriptions[role];
+};
+
+/**
+ * Find text snippets around a character name for context
+ */
+const findContextualSnippets = (scriptText: string, characterName: string, radius: number): string[] => {
+  const snippets: string[] = [];
+  let lastIndex = 0;
+  
+  while (lastIndex < scriptText.length) {
+    const index = scriptText.indexOf(characterName, lastIndex);
+    if (index === -1) break;
+    
+    const start = Math.max(0, index - radius);
+    const end = Math.min(scriptText.length, index + characterName.length + radius);
+    
+    snippets.push(scriptText.substring(start, end));
+    lastIndex = index + 1;
+  }
+  
+  return snippets;
+};
+
+/**
+ * Extract character traits from context
+ */
+const extractCharacterTraits = (scriptText: string, characterName: string): string[] => {
+  const traits: string[] = [];
+  
+  // Common character trait pairs - for each snippet, check if any of these appear near the character name
+  const traitsByCategory = {
+    physical: [
+      'tall', 'short', 'thin', 'slender', 'heavy', 'muscular', 'athletic', 'fit', 'strong', 'weak',
+      'beautiful', 'handsome', 'plain', 'attractive', 'unattractive', 'young', 'old', 'middle-aged'
+    ],
+    personality: [
+      'kind', 'cruel', 'gentle', 'harsh', 'brave', 'cowardly', 'confident', 'insecure', 'outgoing', 'shy',
+      'intelligent', 'clever', 'simple', 'wise', 'foolish', 'serious', 'playful', 'calm', 'nervous',
+      'patient', 'impatient', 'generous', 'selfish', 'honest', 'deceitful', 'loyal', 'treacherous',
+      'optimistic', 'pessimistic', 'cheerful', 'gloomy', 'friendly', 'unfriendly', 'determined', 'hesitant'
+    ],
+    role: [
+      'leader', 'follower', 'helper', 'mentor', 'student', 'friend', 'enemy', 'ally', 'rival',
+      'parent', 'child', 'sibling', 'relative', 'stranger', 'professional', 'amateur', 'expert', 'novice'
+    ]
+  };
+  
+  // Find snippets around character name
+  const snippets = findContextualSnippets(scriptText, characterName, 75);
+  const snippetText = snippets.join(' ').toLowerCase();
+  
+  // Check for traits in snippets
+  for (const category in traitsByCategory) {
+    for (const trait of traitsByCategory[category as keyof typeof traitsByCategory]) {
+      // Look for trait words near the character name
+      if (snippetText.includes(` ${trait} `) || 
+          snippetText.includes(`${characterName.toLowerCase()} is ${trait}`) ||
+          snippetText.includes(`${trait} ${characterName.toLowerCase()}`)) {
+        traits.push(trait);
+      }
+    }
+  }
+  
+  // Ensure we have some traits even if none were found
+  if (traits.length === 0) {
+    // Add default traits based on mention frequency
+    const mentionCount = (scriptText.match(new RegExp(`\\b${characterName}\\b`, 'gi')) || []).length;
+    
+    if (mentionCount > 20) {
+      traits.push('important', 'central');
+    } else if (mentionCount > 10) {
+      traits.push('notable', 'significant');
+    } else {
+      traits.push('character');
+    }
+  }
+  
+  // Limit to 5 traits
+  return traits.slice(0, 5);
 };
 
 /**
@@ -368,191 +532,6 @@ const findLocationHints = (text: string): string => {
 };
 
 /**
- * Extract character traits from context
- */
-const extractCharacterTraits = (scriptText: string, characterName: string): string[] => {
-  // In a real app, this would use NLP or AI to extract traits
-  // Simplified implementation for demo purposes
-  const traits: string[] = [];
-  
-  const descriptiveTerms = [
-    'young', 'old', 'tall', 'short', 'thin', 'heavy', 'beautiful', 'handsome', 
-    'rugged', 'elegant', 'nervous', 'confident', 'shy', 'outgoing', 'intelligent', 
-    'simple', 'complex', 'mysterious', 'open', 'dark', 'light', 'blonde', 'brunette',
-    'redhead', 'strong', 'weak', 'determined', 'hesitant', 'brave', 'cowardly'
-  ];
-  
-  // Check for common descriptive terms near character name
-  const snippets = findContextualSnippets(scriptText, characterName, 50);
-  
-  descriptiveTerms.forEach(term => {
-    if (snippets.some(snippet => snippet.toLowerCase().includes(term))) {
-      traits.push(term);
-    }
-  });
-  
-  // If no traits found, add some defaults based on role
-  if (traits.length === 0) {
-    traits.push('interesting', 'complex');
-  }
-  
-  return traits;
-};
-
-/**
- * Find potential character description from script context
- */
-const findCharacterDescription = (scriptText: string, characterName: string): string => {
-  // Look for character name followed by a description (e.g., "JOHN, a 30-year-old detective")
-  const descriptionRegex = new RegExp(`${characterName}(?:\\s*,\\s*|\\s+is\\s+|\\s+was\\s+)([^\\n.]+)[\\n.]`, 'i');
-  const match = scriptText.match(descriptionRegex);
-  
-  if (match && match[1]) {
-    return match[1].trim();
-  }
-  
-  // Fallback to looking for descriptions near the character name
-  const snippets = findContextualSnippets(scriptText, characterName, 100);
-  
-  // Look for descriptive phrases in snippets
-  for (const snippet of snippets) {
-    const descPhrases = [
-      new RegExp(`${characterName}\\s+(?:is|was)\\s+([^.]+)`, 'i'),
-      new RegExp(`${characterName}\\s*,\\s*([^.]+)`, 'i'),
-      new RegExp(`(?:the|a|an)\\s+([\\w\\s-]+)\\s+${characterName}`, 'i')
-    ];
-    
-    for (const phrase of descPhrases) {
-      const phraseMatch = snippet.match(phrase);
-      if (phraseMatch && phraseMatch[1] && phraseMatch[1].length > 10) {
-        return phraseMatch[1].trim();
-      }
-    }
-  }
-  
-  // Join snippets that might contain description
-  return snippets.join(' ').substring(0, 150) || 'A character in the story';
-};
-
-/**
- * Find text snippets around a character name for context
- */
-const findContextualSnippets = (scriptText: string, characterName: string, radius: number): string[] => {
-  const snippets: string[] = [];
-  let lastIndex = 0;
-  
-  while (lastIndex < scriptText.length) {
-    const index = scriptText.indexOf(characterName, lastIndex);
-    if (index === -1) break;
-    
-    const start = Math.max(0, index - radius);
-    const end = Math.min(scriptText.length, index + characterName.length + radius);
-    
-    snippets.push(scriptText.substring(start, end));
-    lastIndex = index + 1;
-  }
-  
-  return snippets;
-};
-
-/**
- * Determine character role based on script analysis
- */
-const determineCharacterRole = (scriptText: string, characterName: string, index: number): CharacterRole => {
-  // Count character mentions as a basic metric
-  const nameRegex = new RegExp(`\\b${characterName}\\b`, 'g');
-  const nameMatches = scriptText.match(nameRegex);
-  const mentionCount = nameMatches ? nameMatches.length : 0;
-  
-  // Check if name appears in first 20% of script (potential protagonist)
-  const firstFifth = scriptText.substring(0, Math.floor(scriptText.length * 0.2));
-  const appearsEarly = firstFifth.includes(characterName);
-  
-  // For the first two characters, if we don't have other info, make them protagonist and antagonist
-  if (index === 0 && appearsEarly) {
-    return 'protagonist';
-  } else if (index === 1) {
-    // Check for antagonist keywords near character
-    const snippets = findContextualSnippets(scriptText, characterName, 50);
-    const antagonistTerms = ['oppose', 'against', 'enemy', 'villain', 'evil', 'fight', 'conflict'];
-    
-    if (snippets.some(snippet => 
-      antagonistTerms.some(term => snippet.toLowerCase().includes(term))
-    )) {
-      return 'antagonist';
-    }
-    
-    // If this character appears a lot but isn't clearly an antagonist, make them one anyway
-    if (mentionCount > 10) {
-      return 'antagonist';
-    }
-  }
-  
-  // Use mention count for other characters
-  if (mentionCount > 20 && appearsEarly) {
-    return 'protagonist';
-  } else if (mentionCount > 15) {
-    // Check for antagonist keywords near character
-    const snippets = findContextualSnippets(scriptText, characterName, 50);
-    const antagonistTerms = ['oppose', 'against', 'enemy', 'villain', 'evil', 'fight', 'conflict'];
-    
-    if (snippets.some(snippet => 
-      antagonistTerms.some(term => snippet.toLowerCase().includes(term))
-    )) {
-      return 'antagonist';
-    }
-    
-    return 'supporting';
-  } else if (mentionCount > 5) {
-    return 'supporting';
-  } else {
-    return 'minor';
-  }
-};
-
-/**
- * Extract actions from scene text
- */
-const extractActionsFromScene = (sceneText: string): string[] => {
-  // Remove dialogue (simplistic approach)
-  const lines = sceneText.split('\n');
-  const actions: string[] = [];
-  
-  let inDialogue = false;
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    
-    // Skip empty lines
-    if (!line) continue;
-    
-    // Check for character name (ALL CAPS)
-    if (/^[A-Z][A-Z\s]+$/.test(line)) {
-      inDialogue = true;
-      continue;
-    }
-    
-    // Check for parenthetical
-    if (/^\(.*\)$/.test(line)) {
-      continue;
-    }
-    
-    // If we're not in dialogue and it's not a scene heading, it's likely an action
-    if (!inDialogue && !line.startsWith('INT.') && !line.startsWith('EXT.') && !line.startsWith('INT/EXT.')) {
-      actions.push(line);
-    }
-    
-    // Exit dialogue mode after a blank line
-    if (inDialogue && !lines[i+1]?.trim()) {
-      inDialogue = false;
-    }
-  }
-  
-  // Limit to a reasonable number of actions
-  return actions.slice(0, 5);
-};
-
-/**
  * Main function to analyze a script using NLP and regex
  */
 export const analyzeScript = async (scriptText: string): Promise<ScriptAnalysisResult> => {
@@ -582,11 +561,11 @@ export const analyzeScript = async (scriptText: string): Promise<ScriptAnalysisR
     
     // Sample character images
     const sampleImages = [
-      'public/lovable-uploads/d92d25df-8a20-4388-a978-6f26545f45a5.png',
-      'public/lovable-uploads/a74dd3a1-8f81-426e-9dfd-ddacc2669762.png',
-      'public/lovable-uploads/0f25fd33-4d81-4901-bf39-775060e2a0b9.png',
-      'public/lovable-uploads/d1b481b4-fdd4-435d-a01c-9f863e3e1def.png',
-      'public/lovable-uploads/3ae6df30-6eac-4604-81f4-2ace0197eda0.png'
+      '/lovable-uploads/d92d25df-8a20-4388-a978-6f26545f45a5.png',
+      '/lovable-uploads/a74dd3a1-8f81-426e-9dfd-ddacc2669762.png',
+      '/lovable-uploads/0f25fd33-4d81-4901-bf39-775060e2a0b9.png',
+      '/lovable-uploads/d1b481b4-fdd4-435d-a01c-9f863e3e1def.png',
+      '/lovable-uploads/3ae6df30-6eac-4604-81f4-2ace0197eda0.png'
     ];
     
     finalCharacters = sampleNames.map((name, i) => ({
@@ -661,14 +640,14 @@ export const analyzeScript = async (scriptText: string): Promise<ScriptAnalysisR
  */
 export const addNamedCharacter = (name: string, role: CharacterRole, existingCharacters: Character[]): Character => {
   const characterImages = [
-    'public/lovable-uploads/d92d25df-8a20-4388-a978-6f26545f45a5.png',
-    'public/lovable-uploads/a74dd3a1-8f81-426e-9dfd-ddacc2669762.png',
-    'public/lovable-uploads/0f25fd33-4d81-4901-bf39-775060e2a0b9.png',
-    'public/lovable-uploads/d1b481b4-fdd4-435d-a01c-9f863e3e1def.png',
-    'public/lovable-uploads/3ae6df30-6eac-4604-81f4-2ace0197eda0.png',
-    'public/lovable-uploads/eb922982-c40b-482f-975a-12cb014bb79c.png',
-    'public/lovable-uploads/952c11d0-ee84-493e-ba6a-9d568470e138.png',
-    'public/lovable-uploads/2acfc657-5e91-48ad-904f-bc4ba5dd0bba.png'
+    '/lovable-uploads/d92d25df-8a20-4388-a978-6f26545f45a5.png',
+    '/lovable-uploads/a74dd3a1-8f81-426e-9dfd-ddacc2669762.png',
+    '/lovable-uploads/0f25fd33-4d81-4901-bf39-775060e2a0b9.png',
+    '/lovable-uploads/d1b481b4-fdd4-435d-a01c-9f863e3e1def.png',
+    '/lovable-uploads/3ae6df30-6eac-4604-81f4-2ace0197eda0.png',
+    '/lovable-uploads/eb922982-c40b-482f-975a-12cb014bb79c.png',
+    '/lovable-uploads/952c11d0-ee84-493e-ba6a-9d568470e138.png',
+    '/lovable-uploads/2acfc657-5e91-48ad-904f-bc4ba5dd0bba.png'
   ];
   
   // Choose an image based on the index
