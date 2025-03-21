@@ -15,8 +15,8 @@ import { Character, Scene, ScriptAnalysisResult } from '@/lib/types';
 import ScriptInput from '../components/ScriptInput';
 import CharacterExtractor from '../components/CharacterExtractor';
 import StoryboardGenerator from '@/components/StoryboardGenerator';
-import { analyzeScript } from '@/lib/characterExtraction';
-import { initializeNLPPipeline } from '@/lib/characterExtraction';
+import { analyzeScript } from '../lib/characterExtraction';
+import { initializeNLPPipeline } from '../lib/characterExtraction';
 
 const SAMPLE_CHARACTERS: Character[] = [
   {
@@ -80,20 +80,15 @@ const Index = () => {
     try {
       toast.info('Analyzing script...');
       
-      // Initialize the NLP pipeline
       await initializeNLPPipeline();
       
-      // Perform actual analysis using our enhanced function
       const result = await analyzeScript(script);
       
-      // Set the analysis result with real data
       setAnalysisResult(result);
       
-      // Navigate to characters view
       setCurrentView('characters');
       toast.success('Script analysis complete!');
       
-      // Log analysis results
       console.log('Script analysis completed with results:', result);
       console.log(`Found ${result.characters.length} characters and ${result.scenes.length} scenes`);
     } catch (error) {
