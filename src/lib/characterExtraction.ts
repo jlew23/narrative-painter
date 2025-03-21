@@ -392,6 +392,31 @@ const extractCharacterTraits = (scriptText: string, characterName: string): stri
 };
 
 /**
+ * Helper function to extract actions from a scene 
+ */
+export const extractActionsFromScene = (sceneText: string): string[] => {
+  const actions: string[] = [];
+  
+  // Simple action extraction - find sentences describing actions
+  const sentences = sceneText.split(/[.!?]/).filter(Boolean).map(s => s.trim());
+  
+  // Filter to likely action sentences (non-dialogue, descriptive)
+  for (const sentence of sentences) {
+    // Skip obvious dialogue lines
+    if (sentence.includes('"') || /^[A-Z]+:/.test(sentence)) {
+      continue;
+    }
+    
+    // Focus on sentences with verbs indicating action
+    if (/\b(walks?|runs?|moves?|opens?|closes?|sits?|stands?|looks?|turns?|puts?|picks?|grabs?|pulls?|pushes?)\b/i.test(sentence)) {
+      actions.push(sentence);
+    }
+  }
+  
+  return actions.slice(0, 10); // Limit to 10 actions per scene
+};
+
+/**
  * Simple scene extraction from script
  */
 export const extractScenesFromScript = (scriptText: string, characters: Character[]): Scene[] => {

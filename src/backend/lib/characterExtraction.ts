@@ -1,3 +1,4 @@
+
 // Import the types from the new location
 import { Character, CharacterRole, Scene, ScriptAnalysisResult } from './types';
 
